@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Crosswind Calculator</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Crosswind Calculator</h1>
+    <form id="calc-form">
+      <label for="runway">Runway Heading (°)</label>
+      <input type="number" id="runway" min="0" max="360" step="1" placeholder="e.g. 270" required>
+
+      <label for="wind-dir">Wind Direction (°)</label>
+      <input type="number" id="wind-dir" min="0" max="360" step="1" placeholder="e.g. 310" required>
+
+      <label for="wind-speed">Wind Speed (knots)</label>
+      <input type="number" id="wind-speed" min="0" step="1" placeholder="e.g. 15" required>
+
+      <button type="submit">Calculate</button>
+    </form>
+    <div id="result" class="result" hidden>
+      <p>Crosswind: <strong id="crosswind-value"></strong> knots</p>
+      <p>Headwind: <strong id="headwind-value"></strong> knots</p>
+    </div>
+  </div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
