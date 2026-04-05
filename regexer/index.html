@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Regexer</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.classless.min.css"
+    />
+    <style>
+      body {
+        padding-bottom: 4rem;
+      }
+
+      header {
+        padding-top: 2rem;
+      }
+
+      header p {
+        color: var(--pico-muted-color);
+      }
+
+      .input-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 1.5rem;
+      }
+
+      @media (max-width: 900px) {
+        .input-grid {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+
+      @media (max-width: 600px) {
+        .input-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      textarea {
+        font-family: monospace;
+        font-size: 0.9rem;
+        resize: vertical;
+      }
+
+      #results {
+        margin-top: 2rem;
+      }
+
+      .regex-card {
+        border: 1px solid var(--pico-muted-border-color);
+        border-radius: var(--pico-border-radius);
+        padding: 0.9rem 1.1rem;
+        margin-bottom: 0.85rem;
+      }
+
+      .regex-card-label {
+        font-size: 0.72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--pico-muted-color);
+        margin-bottom: 0.55rem;
+      }
+
+      .regex-card-desc {
+        font-size: 0.78rem;
+        color: var(--pico-muted-color);
+        margin-top: 0.35rem;
+      }
+
+      .regex-row {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+      }
+
+      .regex-code {
+        flex: 1;
+        font-family: monospace;
+        font-size: 1rem;
+        color: var(--pico-primary);
+        word-break: break-all;
+        user-select: all;
+      }
+
+      .copy-btn {
+        flex-shrink: 0;
+        padding: 0.2rem 0.7rem;
+        font-size: 0.78rem;
+        margin: 0;
+        min-width: 4.5rem;
+      }
+
+      .match-section h3 {
+        margin-bottom: 0.4rem;
+      }
+
+      .match-meta {
+        font-size: 0.82rem;
+        color: var(--pico-muted-color);
+        margin-bottom: 0.6rem;
+      }
+
+      .match-meta.no-match {
+        color: var(--pico-del-color, #c0392b);
+      }
+
+      .match-preview {
+        font-family: monospace;
+        font-size: 0.875rem;
+        line-height: 1.7;
+        white-space: pre-wrap;
+        word-break: break-all;
+        background: var(--pico-card-background-color);
+        border: 1px solid var(--pico-muted-border-color);
+        border-radius: var(--pico-border-radius);
+        padding: 0.9rem 1rem;
+        max-height: 220px;
+        overflow-y: auto;
+      }
+
+      .match-context {
+        background: #fff3cc;
+        border-radius: 2px;
+      }
+
+      .match-capture {
+        background: #ffd700;
+        border-radius: 2px;
+        padding: 0 1px;
+      }
+
+      mark {
+        background: #ffd700;
+        border-radius: 2px;
+        padding: 0 1px;
+      }
+
+      .capture-error {
+        font-size: 0.82rem;
+        color: var(--pico-del-color, #c0392b);
+        margin-top: 0.3rem;
+        display: none;
+      }
+
+      .capture-error.visible {
+        display: block;
+      }
+
+      .duplicate-note {
+        font-size: 0.75rem;
+        color: var(--pico-muted-color);
+        font-style: italic;
+        margin-left: 0.4rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Regexer</h1>
+        <p>Paste example text, enter what you want to match, and get a regular expression.</p>
+      </header>
+
+      <div class="input-grid">
+        <label>
+          Example text
+          <textarea
+            id="example-text"
+            rows="9"
+            placeholder="Paste your full text here…&#10;&#10;e.g. Order #4821 placed on 2024-03-15 for $49.99"
+          ></textarea>
+        </label>
+        <label>
+          Text to find
+          <textarea
+            id="find-text"
+            rows="9"
+            placeholder="Enter exactly what you want to match…&#10;&#10;e.g. 2024-03-15"
+          ></textarea>
+        </label>
+        <label>
+          Text to capture <small>(optional)</small>
+          <textarea
+            id="capture-text"
+            rows="9"
+            placeholder="Enter the portion you want to capture…&#10;&#10;Must appear inside &quot;Text to find&quot;.&#10;&#10;e.g. 03-15"
+          ></textarea>
+          <span class="capture-error" id="capture-error">Must be a substring of &ldquo;Text to find&rdquo;.</span>
+        </label>
+      </div>
+
+      <button id="generate-btn">Generate Regex</button>
+
+      <section id="results" hidden>
+        <h2>Generated expressions</h2>
+
+        <div class="regex-card" id="card-literal">
+          <div class="regex-card-label">Literal</div>
+          <div class="regex-row">
+            <code class="regex-code" id="literal-regex"></code>
+            <button class="copy-btn outline secondary" data-target="literal-regex">Copy</button>
+          </div>
+          <div class="regex-card-desc">Matches this exact string only.</div>
+        </div>
+
+        <div class="regex-card" id="card-smart">
+          <div class="regex-card-label">
+            Smart
+            <span class="duplicate-note" id="smart-dup-note" hidden>(same as literal)</span>
+          </div>
+          <div class="regex-row">
+            <code class="regex-code" id="smart-regex"></code>
+            <button class="copy-btn outline secondary" data-target="smart-regex">Copy</button>
+          </div>
+          <div class="regex-card-desc">
+            Replaces digits, letters, and spaces with character classes — matches similar
+            patterns of the same length.
+          </div>
+        </div>
+
+        <div class="regex-card" id="card-flexible">
+          <div class="regex-card-label">
+            Flexible
+            <span class="duplicate-note" id="flexible-dup-note" hidden>(same as smart)</span>
+          </div>
+          <div class="regex-row">
+            <code class="regex-code" id="flexible-regex"></code>
+            <button class="copy-btn outline secondary" data-target="flexible-regex">Copy</button>
+          </div>
+          <div class="regex-card-desc">
+            Uses <code>+</code> quantifiers — matches similar patterns of any length.
+          </div>
+        </div>
+
+        <div class="match-section">
+          <h3>Match preview</h3>
+          <div class="match-meta" id="match-meta"></div>
+          <div class="match-preview" id="match-preview"></div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      function escapeRegex(str) {
+        return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      }
+
+      function escapeHtml(str) {
+        return str
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+      }
+
+      // Build a pattern by classifying runs of characters.
+      // flexible=false → exact-length quantifiers ({n})
+      // flexible=true  → variable-length quantifiers (+)
+      function buildPattern(text, flexible) {
+        let pattern = '';
+        let i = 0;
+
+        while (i < text.length) {
+          const ch = text[i];
+
+          if (/[0-9]/.test(ch)) {
+            let j = i;
+            while (j < text.length && /[0-9]/.test(text[j])) j++;
+            const n = j - i;
+            pattern += flexible ? '\\d+' : (n === 1 ? '\\d' : `\\d{${n}}`);
+            i = j;
+          } else if (/[a-z]/.test(ch)) {
+            let j = i;
+            while (j < text.length && /[a-z]/.test(text[j])) j++;
+            const n = j - i;
+            pattern += flexible ? '[a-z]+' : (n === 1 ? '[a-z]' : `[a-z]{${n}}`);
+            i = j;
+          } else if (/[A-Z]/.test(ch)) {
+            let j = i;
+            while (j < text.length && /[A-Z]/.test(text[j])) j++;
+            const n = j - i;
+            pattern += flexible ? '[A-Z]+' : (n === 1 ? '[A-Z]' : `[A-Z]{${n}}`);
+            i = j;
+          } else if (/\s/.test(ch)) {
+            let j = i;
+            while (j < text.length && /\s/.test(text[j])) j++;
+            const n = j - i;
+            pattern += flexible ? '\\s+' : (n === 1 ? '\\s' : `\\s{${n}}`);
+            i = j;
+          } else {
+            pattern += escapeRegex(ch);
+            i++;
+          }
+        }
+
+        return pattern;
+      }
+
+      // Wraps captureText portion in a capture group within the findText pattern.
+      function buildPatternWithCapture(findText, captureText, flexible) {
+        if (!captureText) return buildPattern(findText, flexible);
+        const idx = findText.indexOf(captureText);
+        const prefix = findText.slice(0, idx);
+        const suffix = findText.slice(idx + captureText.length);
+        return (
+          buildPattern(prefix, flexible) +
+          '(' + buildPattern(captureText, flexible) + ')' +
+          buildPattern(suffix, flexible)
+        );
+      }
+
+      function highlightMatches(exampleText, rawPattern, hasCapture) {
+        try {
+          const re = new RegExp(rawPattern, 'g');
+          const matches = [...exampleText.matchAll(re)];
+          if (matches.length === 0) {
+            return { html: escapeHtml(exampleText), count: 0 };
+          }
+
+          let html = '';
+          let last = 0;
+          for (const m of matches) {
+            html += escapeHtml(exampleText.slice(last, m.index));
+            if (hasCapture && m[1] !== undefined) {
+              const capOffset = m[0].indexOf(m[1]);
+              const before  = m[0].slice(0, capOffset);
+              const capture = m[1];
+              const after   = m[0].slice(capOffset + capture.length);
+              html += `<span class="match-context">${escapeHtml(before)}<span class="match-capture">${escapeHtml(capture)}</span>${escapeHtml(after)}</span>`;
+            } else {
+              html += `<mark>${escapeHtml(m[0])}</mark>`;
+            }
+            last = m.index + m[0].length;
+          }
+          html += escapeHtml(exampleText.slice(last));
+          return { html, count: matches.length };
+        } catch {
+          return { html: escapeHtml(exampleText), count: 0 };
+        }
+      }
+
+      document.getElementById('generate-btn').addEventListener('click', () => {
+        const exampleText   = document.getElementById('example-text').value;
+        const findText      = document.getElementById('find-text').value;
+        const captureText   = document.getElementById('capture-text').value;
+        const captureError  = document.getElementById('capture-error');
+
+        if (!findText) return;
+
+        // Validate capture text is a substring of find text
+        if (captureText && findText.indexOf(captureText) === -1) {
+          captureError.classList.add('visible');
+          return;
+        }
+        captureError.classList.remove('visible');
+
+        const hasCapture = !!captureText;
+
+        const smart    = buildPatternWithCapture(findText, captureText, false);
+        const flexible = buildPatternWithCapture(findText, captureText, true);
+
+        // For literal variant use escapeRegex on the full string split at capture
+        const literalPattern = hasCapture
+          ? escapeRegex(findText.slice(0, findText.indexOf(captureText))) +
+            '(' + escapeRegex(captureText) + ')' +
+            escapeRegex(findText.slice(findText.indexOf(captureText) + captureText.length))
+          : escapeRegex(findText);
+
+        const fmt = p => `/${p}/g`;
+
+        document.getElementById('literal-regex').textContent  = fmt(literalPattern);
+        document.getElementById('smart-regex').textContent    = fmt(smart);
+        document.getElementById('flexible-regex').textContent = fmt(flexible);
+
+        // Flag when variants are identical to a simpler one
+        document.getElementById('smart-dup-note').hidden    = (smart !== literalPattern);
+        document.getElementById('flexible-dup-note').hidden = (flexible !== smart);
+
+        // Match preview uses the literal pattern (most precise)
+        if (exampleText) {
+          const { html, count } = highlightMatches(exampleText, literalPattern, hasCapture);
+          document.getElementById('match-preview').innerHTML = html;
+          const meta = document.getElementById('match-meta');
+          if (count === 0) {
+            meta.textContent = 'No matches found in example text.';
+            meta.className = 'match-meta no-match';
+          } else {
+            meta.textContent = `${count} match${count !== 1 ? 'es' : ''} found.`;
+            meta.className = 'match-meta';
+          }
+          document.querySelector('.match-section').hidden = false;
+        } else {
+          document.querySelector('.match-section').hidden = true;
+        }
+
+        document.getElementById('results').hidden = false;
+      });
+
+      // Copy buttons
+      document.addEventListener('click', e => {
+        const btn = e.target.closest('.copy-btn');
+        if (!btn) return;
+        const text = document.getElementById(btn.dataset.target).textContent;
+        navigator.clipboard.writeText(text).then(() => {
+          btn.textContent = 'Copied!';
+          setTimeout(() => (btn.textContent = 'Copy'), 1500);
+        });
+      });
+
+      // Allow Ctrl+Enter / Cmd+Enter to generate from either textarea
+      document.addEventListener('keydown', e => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+          document.getElementById('generate-btn').click();
+        }
+      });
+    </script>
+  </body>
+</html>
