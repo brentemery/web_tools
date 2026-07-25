@@ -1,0 +1,3 @@
+[workspace]
+resolver = "2"
+members = ["yield_max-core", "yield_max-cli", "yield_max-wasm"]

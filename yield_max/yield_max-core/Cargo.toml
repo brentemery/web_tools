@@ -1,0 +1,7 @@
+[package]
+name = "yield_max-core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "yield_max_core"

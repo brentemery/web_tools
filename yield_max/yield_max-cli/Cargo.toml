@@ -1,0 +1,11 @@
+[package]
+name = "yield_max-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "yield_max"
+path = "src/main.rs"
+
+[dependencies]
+yield_max-core = { path = "../yield_max-core" }

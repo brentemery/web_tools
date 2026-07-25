@@ -1,0 +1,15 @@
+{
+  "name": "yield_max-wasm",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "yield_max_wasm_bg.wasm",
+    "yield_max_wasm.js",
+    "yield_max_wasm.d.ts"
+  ],
+  "main": "yield_max_wasm.js",
+  "types": "yield_max_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
