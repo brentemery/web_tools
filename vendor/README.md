@@ -39,3 +39,9 @@ Download the new exact version (never a floating `@2`), update the URL and
 hash above, and re-check each consuming page renders correctly. Consumers:
 `regexer/index.html`, `yield_max/index.html`. (`crosswind` has its own
 `style.css` and does not use Pico.)
+
+### Automation
+
+`.github/workflows/ci.yml` runs `verify.sh` on every push and pull request,
+and weekly on a schedule so upstream drift surfaces even when nobody is
+pushing.

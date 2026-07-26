@@ -1,0 +1,161 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Weekly, to catch upstream drift in vendored assets even when nobody pushes.
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+
+# A second push to the same branch makes the first run irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  vendor:
+    name: Vendored assets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Verifies the vendored CSS matches its recorded sha384 and that no page
+      # has reintroduced a third-party CDN reference. See vendor/README.md.
+      - name: Verify vendored assets
+        run: ./vendor/verify.sh
+
+  rust:
+    name: Rust (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: yield_max
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: stable
+            toolchain: stable
+          # Beta is advisory: it warns us about breakage before it reaches
+          # stable, but must not block a PR on an upstream regression.
+          - name: beta
+            toolchain: beta
+            experimental: true
+    continue-on-error: ${{ matrix.experimental || false }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: yield_max
+
+      - name: Formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --workspace
+
+      # The fixtures carry their own expected answers, but this also proves the
+      # binary itself behaves, not just the library.
+      - name: End-to-end CLI check
+        run: |
+          cargo run --quiet -p yield_max-cli -- test_wafer.txt - > /tmp/report.txt
+          grep -q '^# good=63 defect=29 overhang=1 sites=93 yield=68.5%$' /tmp/report.txt
+
+          # Our own output must be valid input and reproduce itself exactly.
+          cargo run --quiet -p yield_max-cli -- /tmp/report.txt - > /tmp/again.txt
+          diff /tmp/report.txt /tmp/again.txt
+
+          # Malformed input must fail loudly rather than be reinterpreted.
+          if cargo run --quiet -p yield_max-cli -- testdata/invalid/short_row.txt - 2>/dev/null; then
+            echo "::error::a malformed wafer map was accepted"
+            exit 1
+          fi
+
+  wasm:
+    name: WASM build is reproducible
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: yield_max/yield_max-wasm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: yield_max
+
+      - uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: v0.15.0
+
+      # pkg/ is checked in so the page works from a plain static server with no
+      # build step. That only stays honest if it matches what the source
+      # produces -- otherwise the served wasm silently drifts from the code.
+      - name: Rebuild and compare against the committed pkg/
+        run: |
+          wasm-pack build --target web
+          rm -f pkg/.gitignore   # generated, deliberately not committed
+          if ! git diff --quiet -- pkg; then
+            echo "::error::pkg/ does not match a fresh build; run 'wasm-pack build --target web' in yield_max-wasm and commit the result"
+            git diff --stat -- pkg
+            exit 1
+          fi
+          echo "pkg/ matches a fresh build."
+
+  pages:
+    name: Static pages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Every tool is a static file served from a subdirectory, so a broken
+      # relative path is a real (and silent) failure mode.
+      - name: Check local asset references resolve
+        run: |
+          status=0
+          while IFS= read -r page; do
+            dir=$(dirname "$page")
+            # Pull href/src values that are neither absolute URLs nor data URIs.
+            grep -oE '(href|src)="[^"#?]+"' "$page" \
+              | sed -E 's/^(href|src)="//; s/"$//' \
+              | grep -vE '^(https?:|data:|mailto:|#|/)' \
+              | while IFS= read -r ref; do
+                  target="$dir/$ref"
+                  if [ ! -e "$target" ]; then
+                    echo "::error file=$page::broken reference: $ref"
+                    exit 1
+                  fi
+                done || status=1
+          done < <(find . -name '*.html' -not -path './.git/*')
+          exit $status
+
+      - name: Every tool is linked from the index
+        run: |
+          status=0
+          for dir in crosswind regexer yield_max; do
+            if ! grep -q "$dir" index.html; then
+              echo "::error::$dir is not linked from index.html"
+              status=1
+            fi
+          done
+          exit $status
