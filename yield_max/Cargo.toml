@@ -1,3 +1,11 @@
 [workspace]
 resolver = "2"
 members = ["yield_max-core", "yield_max-cli", "yield_max-wasm"]
+
+# Size-tuned: the wasm binary is downloaded by every visitor, and the solver
+# is far too fast for opt-level="z" to cost anything measurable (verified: no
+# change in solve time). Note `strip = true` breaks wasm-opt in wasm-pack.
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1

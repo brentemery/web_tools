@@ -43,14 +43,23 @@ pub const MASK_TEMPLATE: [&str; MASK_SIZE] = [
 pub const LEGEND: &str =
     "in-region: Z=good *=defect -=overhang   outside: 1=good X=defect .=absent";
 
-fn mask() -> [[bool; MASK_SIZE]; MASK_SIZE] {
-    let mut grid = [[false; MASK_SIZE]; MASK_SIZE];
-    for (r, row) in MASK_TEMPLATE.iter().enumerate() {
-        for (c, ch) in row.chars().enumerate() {
-            grid[r][c] = ch == 'O';
+/// The mask as a boolean grid, derived once from [`MASK_TEMPLATE`]. Deriving
+/// it from the string keeps a single human-readable source of truth for the
+/// shape; caching it stops the solver re-parsing that string on each of the 49
+/// placements it evaluates, which is roughly half the total solve time.
+static MASK: std::sync::LazyLock<[[bool; MASK_SIZE]; MASK_SIZE]> =
+    std::sync::LazyLock::new(|| {
+        let mut grid = [[false; MASK_SIZE]; MASK_SIZE];
+        for (r, row) in MASK_TEMPLATE.iter().enumerate() {
+            for (c, ch) in row.chars().enumerate() {
+                grid[r][c] = ch == 'O';
+            }
         }
-    }
-    grid
+        grid
+    });
+
+fn mask() -> &'static [[bool; MASK_SIZE]; MASK_SIZE] {
+    &MASK
 }
 
 /// Number of `O` cells in the mask, i.e. the number of die sites a 200mm
