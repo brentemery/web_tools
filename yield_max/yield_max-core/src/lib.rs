@@ -47,16 +47,15 @@ pub const LEGEND: &str =
 /// it from the string keeps a single human-readable source of truth for the
 /// shape; caching it stops the solver re-parsing that string on each of the 49
 /// placements it evaluates, which is roughly half the total solve time.
-static MASK: std::sync::LazyLock<[[bool; MASK_SIZE]; MASK_SIZE]> =
-    std::sync::LazyLock::new(|| {
-        let mut grid = [[false; MASK_SIZE]; MASK_SIZE];
-        for (r, row) in MASK_TEMPLATE.iter().enumerate() {
-            for (c, ch) in row.chars().enumerate() {
-                grid[r][c] = ch == 'O';
-            }
+static MASK: std::sync::LazyLock<[[bool; MASK_SIZE]; MASK_SIZE]> = std::sync::LazyLock::new(|| {
+    let mut grid = [[false; MASK_SIZE]; MASK_SIZE];
+    for (r, row) in MASK_TEMPLATE.iter().enumerate() {
+        for (c, ch) in row.chars().enumerate() {
+            grid[r][c] = ch == 'O';
         }
-        grid
-    });
+    }
+    grid
+});
 
 fn mask() -> &'static [[bool; MASK_SIZE]; MASK_SIZE] {
     &MASK
@@ -195,10 +194,7 @@ impl WaferMap {
         // Drop `#` comment lines, but only at the top and bottom: a comment
         // interleaved with the grid is as suspect as a blank line there, since
         // it suggests the file was assembled wrongly.
-        let mut rows: Vec<&str> = input
-            .lines()
-            .map(|l| l.trim_end_matches('\r'))
-            .collect();
+        let mut rows: Vec<&str> = input.lines().map(|l| l.trim_end_matches('\r')).collect();
         while rows
             .first()
             .is_some_and(|l| l.trim().is_empty() || l.trim_start().starts_with('#'))
@@ -232,8 +228,8 @@ impl WaferMap {
             let mut die_row = Vec::with_capacity(BOARD_SIZE);
             let mut mark_row = Vec::with_capacity(BOARD_SIZE);
             for (c, &ch) in chars.iter().enumerate() {
-                let (die, in_region) = Die::from_char(ch)
-                    .ok_or(ParseError::InvalidChar { row: r, col: c, ch })?;
+                let (die, in_region) =
+                    Die::from_char(ch).ok_or(ParseError::InvalidChar { row: r, col: c, ch })?;
                 die_row.push(die);
                 mark_row.push(in_region);
             }

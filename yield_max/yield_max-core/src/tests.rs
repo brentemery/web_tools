@@ -6,7 +6,10 @@ const SAMPLE: &str = include_str!("../../test_wafer.txt");
 
 fn uniform(ch: char) -> String {
     let row: String = std::iter::repeat_n(ch, BOARD_SIZE).collect();
-    (0..BOARD_SIZE).map(|_| row.as_str()).collect::<Vec<_>>().join("\n")
+    (0..BOARD_SIZE)
+        .map(|_| row.as_str())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[test]
@@ -201,7 +204,10 @@ fn output_round_trips_through_the_parser() {
     assert_eq!(reparsed.marked_region(), Some(best));
     assert_eq!(find_best_region(&reparsed), best);
     // Idempotent: re-running on the marked file reproduces it exactly.
-    assert_eq!(render_report(&reparsed, &find_best_region(&reparsed)), report);
+    assert_eq!(
+        render_report(&reparsed, &find_best_region(&reparsed)),
+        report
+    );
 }
 
 #[test]
@@ -440,11 +446,7 @@ fn rejects_empty_and_contentless_input() {
 #[test]
 fn rejects_comment_inside_the_grid() {
     let rows: Vec<&str> = SAMPLE.trim().lines().collect();
-    let spliced = format!(
-        "{}\n# note\n{}",
-        rows[..8].join("\n"),
-        rows[8..].join("\n")
-    );
+    let spliced = format!("{}\n# note\n{}", rows[..8].join("\n"), rows[8..].join("\n"));
     assert_eq!(
         WaferMap::parse(&spliced).unwrap_err(),
         ParseError::WrongRowCount(BOARD_SIZE + 1)
