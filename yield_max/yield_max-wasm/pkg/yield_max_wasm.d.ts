@@ -5,26 +5,80 @@ export class AnalysisResult {
     private constructor();
     free(): void;
     [Symbol.dispose](): void;
+    readonly best: Placement;
+    /**
+     * The full self-describing report: `#` header plus the marked grid.
+     */
+    readonly report: string;
+    /**
+     * Next-best placements, best first, so the UI can show the tradeoff
+     * against the runner-up rather than presenting the winner as inevitable.
+     */
+    readonly runners_up: Placement[];
+}
+
+/**
+ * Scored placement of the 200mm region, carrying the full breakdown of why
+ * it scored as it did rather than just the good-die count.
+ */
+export class Placement {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
     readonly col: number;
-    readonly good_die_count: number;
-    readonly marked_map: string;
+    readonly defect: number;
+    readonly good: number;
+    readonly overhang: number;
     readonly row: number;
+    readonly sites: number;
+    /**
+     * Good die as a fraction of present die, in 0.0..=1.0.
+     */
+    readonly yield_fraction: number;
 }
 
 export function analyze_wafer(input: string): AnalysisResult;
+
+/**
+ * The cell-alphabet legend, so the UI never has to restate it.
+ */
+export function legend(): string;
+
+/**
+ * The 200mm mask footprint as `O`/`.` rows. Exported so the web UI can draw
+ * the region outline from the same constant the solver uses, instead of
+ * keeping a copy that could silently drift out of sync.
+ */
+export function mask_rows(): string[];
+
+/**
+ * Total die sites a 200mm region occupies, wherever it is placed.
+ */
+export function mask_sites(): number;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_analysisresult_free: (a: number, b: number) => void;
-    readonly analysisresult_col: (a: number) => number;
-    readonly analysisresult_good_die_count: (a: number) => number;
-    readonly analysisresult_marked_map: (a: number) => [number, number];
-    readonly analysisresult_row: (a: number) => number;
+    readonly __wbg_placement_free: (a: number, b: number) => void;
+    readonly analysisresult_best: (a: number) => number;
+    readonly analysisresult_report: (a: number) => [number, number];
+    readonly analysisresult_runners_up: (a: number) => [number, number];
     readonly analyze_wafer: (a: number, b: number) => [number, number, number];
+    readonly legend: () => [number, number];
+    readonly mask_rows: () => [number, number];
+    readonly mask_sites: () => number;
+    readonly placement_col: (a: number) => number;
+    readonly placement_defect: (a: number) => number;
+    readonly placement_good: (a: number) => number;
+    readonly placement_overhang: (a: number) => number;
+    readonly placement_row: (a: number) => number;
+    readonly placement_sites: (a: number) => number;
+    readonly placement_yield_fraction: (a: number) => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
+    readonly __externref_drop_slice: (a: number, b: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __externref_table_dealloc: (a: number) => void;

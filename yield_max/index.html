@@ -70,6 +70,26 @@
         --region-accent: #2a78d6;
       }
 
+      /* Good/defect are the classic red/green confusion pair, so colour alone
+         is not a sufficient encoding. Every cell also carries its glyph. */
+      .wafer-cell::after {
+        content: attr(data-glyph);
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: monospace;
+        font-size: clamp(0.5rem, 1.1vw, 0.8rem);
+        font-weight: 700;
+        color: rgba(255, 255, 255, 0.92);
+        pointer-events: none;
+      }
+
+      .wafer-cell[data-state='absent']::after {
+        color: var(--text-muted);
+      }
+
       .wafer-viz {
         background: var(--chart-surface);
         border: 1px solid var(--border-hairline);
@@ -150,6 +170,41 @@
         border: 3px solid var(--region-accent);
       }
 
+      .stats {
+        margin: 0 0 1.25rem;
+        padding-left: 1.1rem;
+        font-size: 0.95rem;
+        color: var(--pico-color);
+      }
+
+      .stats li {
+        margin-bottom: 0.2rem;
+      }
+
+      .runners {
+        font-size: 0.85rem;
+        color: var(--pico-muted-color);
+        margin-top: 1rem;
+      }
+
+      .runners table {
+        font-size: 0.85rem;
+        margin-top: 0.4rem;
+      }
+
+      .file-row {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        margin-bottom: 0.75rem;
+      }
+
+      .file-row input[type='file'] {
+        width: auto;
+        margin: 0;
+      }
+
       #cell-tooltip {
         position: fixed;
         pointer-events: none;
@@ -195,32 +250,55 @@
     </header>
 
     <main>
+      <div class="file-row">
+        <label for="wafer-file">Load a wafer map file</label>
+        <input type="file" id="wafer-file" accept=".txt,text/plain" />
+      </div>
+
       <label for="wafer-input">Wafer map</label>
       <textarea id="wafer-input" rows="17" spellcheck="false" placeholder=".....1111111....."></textarea>
 
       <div class="actions">
         <button id="load-sample-btn" class="secondary">Load sample</button>
-        <button id="analyze-btn">Analyze</button>
+        <button id="analyze-btn" disabled>Analyze</button>
+        <button id="download-btn" class="secondary" hidden>Download report</button>
       </div>
 
-      <div id="error" hidden></div>
+      <div id="error" role="alert" hidden></div>
 
       <div id="results" hidden>
         <p class="summary">
           Best 200mm region: top-left at (row <strong id="result-row"></strong>, col
-          <strong id="result-col"></strong>), good die count: <strong id="result-count"></strong>
+          <strong id="result-col"></strong>)
         </p>
+
+        <ul class="stats">
+          <li><strong id="stat-good"></strong> good die</li>
+          <li><strong id="stat-defect"></strong> defect die</li>
+          <li><strong id="stat-overhang"></strong> overhang site(s) — mask area falling off the wafer edge</li>
+          <li><strong id="stat-yield"></strong> yield across <strong id="stat-sites"></strong> die sites</li>
+        </ul>
 
         <div class="viz-root">
           <div class="wafer-viz">
             <div id="wafer-grid" class="wafer-grid" role="grid" aria-label="Wafer die map with selected 200mm region"></div>
             <div class="legend">
-              <div class="legend-item"><span class="legend-swatch good"></span>Good die</div>
-              <div class="legend-item"><span class="legend-swatch defect"></span>Defect die</div>
-              <div class="legend-item"><span class="legend-swatch"></span>Not present</div>
+              <div class="legend-item"><span class="legend-swatch good"></span>Good die (<code>1</code>, <code>Z</code> in region)</div>
+              <div class="legend-item"><span class="legend-swatch defect"></span>Defect die (<code>X</code>, <code>*</code> in region)</div>
+              <div class="legend-item"><span class="legend-swatch"></span>Not present (<code>.</code>, <code>-</code> in region)</div>
               <div class="legend-item"><span class="legend-swatch region"></span>Selected 200mm region</div>
             </div>
           </div>
+        </div>
+
+        <div class="runners">
+          Next-best placements:
+          <table>
+            <thead>
+              <tr><th>Row</th><th>Col</th><th>Good</th><th>Defect</th><th>Overhang</th></tr>
+            </thead>
+            <tbody id="runners-body"></tbody>
+          </table>
         </div>
 
         <details class="raw-output">
@@ -233,9 +311,7 @@
     <div id="cell-tooltip" role="tooltip" hidden></div>
 
     <script type="module">
-      import init, { analyze_wafer } from './yield_max-wasm/pkg/yield_max_wasm.js';
-
-      await init();
+      import init, { analyze_wafer, mask_rows } from './yield_max-wasm/pkg/yield_max_wasm.js';
 
       const SAMPLE = `.....1111111.....
 ...XX111111XXX...
@@ -255,31 +331,69 @@ XXXXXXXXX1111X11X
 ....X11111X1X....
 .......XXXX......`;
 
-      // Mirrors the MASK_TEMPLATE constant in yield_max-core/src/lib.rs — must stay in sync.
-      const MASK = [
-        '...OOOOO...',
-        '..OOOOOOO..',
-        '.OOOOOOOOO.',
-        'OOOOOOOOOOO',
-        'OOOOOOOOOOO',
-        'OOOOOOOOOOO',
-        'OOOOOOOOOOO',
-        '.OOOOOOOOO.',
-        '.OOOOOOOOO.',
-        '..OOOOOOO..',
-        '....OOO....',
-      ];
       const BOARD_SIZE = 17;
-      const MASK_SIZE = 11;
 
       const input = document.getElementById('wafer-input');
       const errorBox = document.getElementById('error');
       const results = document.getElementById('results');
       const grid = document.getElementById('wafer-grid');
       const tooltip = document.getElementById('cell-tooltip');
+      const analyzeBtn = document.getElementById('analyze-btn');
+      const downloadBtn = document.getElementById('download-btn');
+      const fileInput = document.getElementById('wafer-file');
+
+      // Fetched from WASM rather than duplicated here, so the outline the UI
+      // draws can never disagree with the mask the solver scored.
+      let MASK = [];
+      let MASK_SIZE = 0;
+      let lastReport = null;
+
+      function showError(message) {
+        errorBox.textContent = message;
+        errorBox.hidden = false;
+      }
+
+      function clearError() {
+        // Clear the text too, not just visibility: this is a role="alert",
+        // and stale content should not linger in the accessibility tree.
+        errorBox.textContent = '';
+        errorBox.hidden = true;
+      }
+
+      try {
+        await init();
+        MASK = mask_rows();
+        MASK_SIZE = MASK.length;
+        analyzeBtn.disabled = false;
+      } catch (err) {
+        // Without this the page looks fine but Analyze silently does nothing.
+        showError(`Failed to load the analysis engine: ${err?.message ?? err}`);
+      }
 
       document.getElementById('load-sample-btn').addEventListener('click', () => {
         input.value = SAMPLE;
+      });
+
+      fileInput.addEventListener('change', async () => {
+        const file = fileInput.files?.[0];
+        if (!file) return;
+        try {
+          input.value = await file.text();
+          clearError();
+        } catch (err) {
+          showError(`Could not read ${file.name}: ${err?.message ?? err}`);
+        }
+      });
+
+      downloadBtn.addEventListener('click', () => {
+        if (lastReport === null) return;
+        const blob = new Blob([lastReport], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'wafer_optimal.txt';
+        a.click();
+        URL.revokeObjectURL(url);
       });
 
       function inRegion(row, col, best) {
@@ -302,9 +416,24 @@ XXXXXXXXX1111X11X
         tooltip.hidden = true;
       }
 
+      // Maps a glyph from the version-2 alphabet to its die state. Both the
+      // in-region and out-of-region spellings resolve to the same state.
+      const STATE_BY_GLYPH = {
+        1: 'good',
+        Z: 'good',
+        X: 'defect',
+        '*': 'defect',
+        '.': 'absent',
+        '-': 'absent',
+      };
+      const STATE_LABEL = {
+        good: 'Good die',
+        defect: 'Defect die',
+        absent: 'Not present',
+      };
+
       function renderGrid(rows, best) {
         grid.textContent = '';
-        const stateLabel = { good: 'Good die', defect: 'Defect die', absent: 'Not present' };
 
         for (let r = 0; r < BOARD_SIZE; r++) {
           const rowEl = document.createElement('div');
@@ -313,8 +442,8 @@ XXXXXXXXX1111X11X
           grid.appendChild(rowEl);
 
           for (let c = 0; c < BOARD_SIZE; c++) {
-            const ch = rows[r][c];
-            const state = ch === '1' ? 'good' : ch === 'X' ? 'defect' : 'absent';
+            const glyph = rows[r][c];
+            const state = STATE_BY_GLYPH[glyph] ?? 'absent';
             const region = inRegion(r, c, best);
 
             const cell = document.createElement('div');
@@ -322,6 +451,7 @@ XXXXXXXXX1111X11X
             cell.setAttribute('role', 'gridcell');
             cell.dataset.state = state;
             cell.dataset.region = String(region);
+            cell.dataset.glyph = glyph;
             cell.tabIndex = 0;
 
             if (region) {
@@ -331,7 +461,11 @@ XXXXXXXXX1111X11X
               if (!inRegion(r, c + 1, best)) cell.style.borderRightColor = 'var(--region-accent)';
             }
 
-            const label = `Row ${r}, col ${c}: ${stateLabel[state]}${region ? ' — in selected region' : ''}`;
+            let suffix = '';
+            if (region) {
+              suffix = state === 'absent' ? ' — in region, overhang (no die)' : ' — in selected region';
+            }
+            const label = `Row ${r}, col ${c}: ${STATE_LABEL[state]}${suffix}`;
             cell.setAttribute('aria-label', label);
 
             cell.addEventListener('pointerenter', () => showTooltip(cell, label));
@@ -344,28 +478,88 @@ XXXXXXXXX1111X11X
         }
       }
 
-      document.getElementById('analyze-btn').addEventListener('click', () => {
-        errorBox.hidden = true;
+      function renderRunnersUp(runners) {
+        const body = document.getElementById('runners-body');
+        body.textContent = '';
+        for (const p of runners) {
+          const tr = document.createElement('tr');
+          for (const value of [p.row, p.col, p.good, p.defect, p.overhang]) {
+            const td = document.createElement('td');
+            td.textContent = value;
+            tr.appendChild(td);
+          }
+          body.appendChild(tr);
+        }
+        if (runners.length === 0) {
+          const tr = document.createElement('tr');
+          const td = document.createElement('td');
+          td.colSpan = 5;
+          td.textContent = 'none';
+          tr.appendChild(td);
+          body.appendChild(tr);
+        }
+      }
+
+      analyzeBtn.addEventListener('click', () => {
+        clearError();
         results.hidden = true;
+        downloadBtn.hidden = true;
         hideTooltip();
 
+        let analysis = null;
+        let best = null;
+        let runners = [];
         try {
-          const analysis = analyze_wafer(input.value);
-          const best = { row: analysis.row, col: analysis.col };
+          analysis = analyze_wafer(input.value);
+          // Copy everything out of WASM memory before freeing the handles.
+          const b = analysis.best;
+          best = {
+            row: b.row,
+            col: b.col,
+            good: b.good,
+            defect: b.defect,
+            overhang: b.overhang,
+            sites: b.sites,
+            yield_fraction: b.yield_fraction,
+          };
+          b.free();
 
-          document.getElementById('result-row').textContent = analysis.row;
-          document.getElementById('result-col').textContent = analysis.col;
-          document.getElementById('result-count').textContent = analysis.good_die_count;
-          document.getElementById('marked-map').textContent = analysis.marked_map;
+          runners = analysis.runners_up.map((p) => {
+            const copy = { row: p.row, col: p.col, good: p.good, defect: p.defect, overhang: p.overhang };
+            p.free();
+            return copy;
+          });
 
-          const rows = input.value.split('\n').filter((l) => l.trim().length > 0);
-          renderGrid(rows, best);
-
-          results.hidden = false;
+          lastReport = analysis.report;
         } catch (err) {
-          errorBox.textContent = typeof err === 'string' ? err : (err.message || String(err));
-          errorBox.hidden = false;
+          showError(typeof err === 'string' ? err : err.message || String(err));
+          return;
+        } finally {
+          // wasm-bindgen handles are not garbage collected; without this each
+          // Analyze click leaks an AnalysisResult and its report string.
+          analysis?.free();
         }
+
+        document.getElementById('result-row').textContent = best.row;
+        document.getElementById('result-col').textContent = best.col;
+        document.getElementById('stat-good').textContent = best.good;
+        document.getElementById('stat-defect').textContent = best.defect;
+        document.getElementById('stat-overhang').textContent = best.overhang;
+        document.getElementById('stat-sites').textContent = best.sites;
+        document.getElementById('stat-yield').textContent =
+          `${(best.yield_fraction * 100).toFixed(1)}%`;
+        document.getElementById('marked-map').textContent = lastReport;
+
+        // Render from the marked report so the grid shows exactly the glyphs
+        // the output file contains, header lines excluded.
+        const rows = lastReport
+          .split('\n')
+          .filter((l) => l.trim().length > 0 && !l.trimStart().startsWith('#'));
+        renderGrid(rows, best);
+        renderRunnersUp(runners);
+
+        results.hidden = false;
+        downloadBtn.hidden = false;
       });
     </script>
   </body>

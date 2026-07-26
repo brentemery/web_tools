@@ -18,27 +18,21 @@ export class AnalysisResult {
         wasm.__wbg_analysisresult_free(ptr, 0);
     }
     /**
-     * @returns {number}
+     * @returns {Placement}
      */
-    get col() {
-        const ret = wasm.analysisresult_col(this.__wbg_ptr);
-        return ret >>> 0;
+    get best() {
+        const ret = wasm.analysisresult_best(this.__wbg_ptr);
+        return Placement.__wrap(ret);
     }
     /**
-     * @returns {number}
-     */
-    get good_die_count() {
-        const ret = wasm.analysisresult_good_die_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
+     * The full self-describing report: `#` header plus the marked grid.
      * @returns {string}
      */
-    get marked_map() {
+    get report() {
         let deferred1_0;
         let deferred1_1;
         try {
-            const ret = wasm.analysisresult_marked_map(this.__wbg_ptr);
+            const ret = wasm.analysisresult_report(this.__wbg_ptr);
             deferred1_0 = ret[0];
             deferred1_1 = ret[1];
             return getStringFromWasm0(ret[0], ret[1]);
@@ -47,14 +41,92 @@ export class AnalysisResult {
         }
     }
     /**
-     * @returns {number}
+     * Next-best placements, best first, so the UI can show the tradeoff
+     * against the runner-up rather than presenting the winner as inevitable.
+     * @returns {Placement[]}
      */
-    get row() {
-        const ret = wasm.analysisresult_row(this.__wbg_ptr);
-        return ret >>> 0;
+    get runners_up() {
+        const ret = wasm.analysisresult_runners_up(this.__wbg_ptr);
+        var v1 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
     }
 }
 if (Symbol.dispose) AnalysisResult.prototype[Symbol.dispose] = AnalysisResult.prototype.free;
+
+/**
+ * Scored placement of the 200mm region, carrying the full breakdown of why
+ * it scored as it did rather than just the good-die count.
+ */
+export class Placement {
+    static __wrap(ptr) {
+        const obj = Object.create(Placement.prototype);
+        obj.__wbg_ptr = ptr;
+        PlacementFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        PlacementFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_placement_free(ptr, 0);
+    }
+    /**
+     * @returns {number}
+     */
+    get col() {
+        const ret = wasm.placement_col(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get defect() {
+        const ret = wasm.placement_defect(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get good() {
+        const ret = wasm.placement_good(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get overhang() {
+        const ret = wasm.placement_overhang(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get row() {
+        const ret = wasm.placement_row(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get sites() {
+        const ret = wasm.placement_sites(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Good die as a fraction of present die, in 0.0..=1.0.
+     * @returns {number}
+     */
+    get yield_fraction() {
+        const ret = wasm.placement_yield_fraction(this.__wbg_ptr);
+        return ret;
+    }
+}
+if (Symbol.dispose) Placement.prototype[Symbol.dispose] = Placement.prototype.free;
 
 /**
  * @param {string} input
@@ -69,11 +141,54 @@ export function analyze_wafer(input) {
     }
     return AnalysisResult.__wrap(ret[0]);
 }
+
+/**
+ * The cell-alphabet legend, so the UI never has to restate it.
+ * @returns {string}
+ */
+export function legend() {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.legend();
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
+ * The 200mm mask footprint as `O`/`.` rows. Exported so the web UI can draw
+ * the region outline from the same constant the solver uses, instead of
+ * keeping a copy that could silently drift out of sync.
+ * @returns {string[]}
+ */
+export function mask_rows() {
+    const ret = wasm.mask_rows();
+    var v1 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v1;
+}
+
+/**
+ * Total die sites a 200mm region occupies, wherever it is placed.
+ * @returns {number}
+ */
+export function mask_sites() {
+    const ret = wasm.mask_sites();
+    return ret >>> 0;
+}
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
         __wbg___wbindgen_throw_344f42d3211c4765: function(arg0, arg1) {
             throw new Error(getStringFromWasm0(arg0, arg1));
+        },
+        __wbg_placement_new: function(arg0) {
+            const ret = Placement.__wrap(arg0);
+            return ret;
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
             // Cast intrinsic for `Ref(String) -> Externref`.
@@ -99,6 +214,28 @@ function __wbg_get_imports() {
 const AnalysisResultFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_analysisresult_free(ptr, 1));
+const PlacementFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_placement_free(ptr, 1));
+
+function getArrayJsValueFromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    const mem = getDataViewMemory0();
+    const result = [];
+    for (let i = ptr; i < ptr + 4 * len; i += 4) {
+        result.push(wasm.__wbindgen_externrefs.get(mem.getUint32(i, true)));
+    }
+    wasm.__externref_drop_slice(ptr, len);
+    return result;
+}
+
+let cachedDataViewMemory0 = null;
+function getDataViewMemory0() {
+    if (cachedDataViewMemory0 === null || cachedDataViewMemory0.buffer.detached === true || (cachedDataViewMemory0.buffer.detached === undefined && cachedDataViewMemory0.buffer !== wasm.memory.buffer)) {
+        cachedDataViewMemory0 = new DataView(wasm.memory.buffer);
+    }
+    return cachedDataViewMemory0;
+}
 
 function getStringFromWasm0(ptr, len) {
     return decodeText(ptr >>> 0, len);
@@ -189,6 +326,7 @@ function __wbg_finalize_init(instance, module) {
     wasmInstance = instance;
     wasm = instance.exports;
     wasmModule = module;
+    cachedDataViewMemory0 = null;
     cachedUint8ArrayMemory0 = null;
     wasm.__wbindgen_start();
     return wasm;

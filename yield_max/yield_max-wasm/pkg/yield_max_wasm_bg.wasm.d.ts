@@ -2,13 +2,24 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const __wbg_analysisresult_free: (a: number, b: number) => void;
-export const analysisresult_col: (a: number) => number;
-export const analysisresult_good_die_count: (a: number) => number;
-export const analysisresult_marked_map: (a: number) => [number, number];
-export const analysisresult_row: (a: number) => number;
+export const __wbg_placement_free: (a: number, b: number) => void;
+export const analysisresult_best: (a: number) => number;
+export const analysisresult_report: (a: number) => [number, number];
+export const analysisresult_runners_up: (a: number) => [number, number];
 export const analyze_wafer: (a: number, b: number) => [number, number, number];
+export const legend: () => [number, number];
+export const mask_rows: () => [number, number];
+export const mask_sites: () => number;
+export const placement_col: (a: number) => number;
+export const placement_defect: (a: number) => number;
+export const placement_good: (a: number) => number;
+export const placement_overhang: (a: number) => number;
+export const placement_row: (a: number) => number;
+export const placement_sites: (a: number) => number;
+export const placement_yield_fraction: (a: number) => number;
 export const __wbindgen_externrefs: WebAssembly.Table;
 export const __wbindgen_free: (a: number, b: number, c: number) => void;
+export const __externref_drop_slice: (a: number, b: number) => void;
 export const __wbindgen_malloc: (a: number, b: number) => number;
 export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
 export const __externref_table_dealloc: (a: number) => void;

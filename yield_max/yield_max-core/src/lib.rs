@@ -1,10 +1,30 @@
 //! Core solver for the Yield Max wafer-yield problem: given a 300mm wafer
 //! map, find the highest-yielding placement of the fixed 200mm mask.
+//!
+//! # File format (version 2)
+//!
+//! A wafer map is a 17x17 grid of single characters. Each cell encodes two
+//! orthogonal facts: the state of the die, and whether the cell falls inside
+//! a marked 200mm region.
+//!
+//! |         | outside region | inside region |
+//! |---------|----------------|---------------|
+//! | good    | `1`            | `Z`           |
+//! | defect  | `X`            | `*`           |
+//! | absent  | `.`            | `-`           |
+//!
+//! Lines beginning with `#` are comments and are ignored on input; the
+//! renderer emits a three-line `#` header describing the result so that the
+//! output file is self-describing. Because the alphabet is lossless, output
+//! of this tool is valid input to it (see [`WaferMap::marked_region`]).
 
 pub const BOARD_SIZE: usize = 17;
 pub const MASK_SIZE: usize = 11;
 
-const MASK_TEMPLATE: [&str; MASK_SIZE] = [
+/// The fixed 200mm region footprint, as `O`/`.` rows. This is the single
+/// source of truth for the mask shape; the web UI reads it back out through
+/// the WASM `mask_rows()` export rather than keeping its own copy.
+pub const MASK_TEMPLATE: [&str; MASK_SIZE] = [
     "...OOOOO...",
     "..OOOOOOO..",
     ".OOOOOOOOO.",
@@ -18,6 +38,11 @@ const MASK_TEMPLATE: [&str; MASK_SIZE] = [
     "....OOO....",
 ];
 
+/// Human-readable legend for the version-2 cell alphabet, emitted in the
+/// output header so a reader needs no external documentation.
+pub const LEGEND: &str =
+    "in-region: Z=good *=defect -=overhang   outside: 1=good X=defect .=absent";
+
 fn mask() -> [[bool; MASK_SIZE]; MASK_SIZE] {
     let mut grid = [[false; MASK_SIZE]; MASK_SIZE];
     for (r, row) in MASK_TEMPLATE.iter().enumerate() {
@@ -28,9 +53,55 @@ fn mask() -> [[bool; MASK_SIZE]; MASK_SIZE] {
     grid
 }
 
+/// Number of `O` cells in the mask, i.e. the number of die sites a 200mm
+/// region occupies regardless of where it is placed.
+pub fn mask_site_count() -> usize {
+    MASK_TEMPLATE
+        .iter()
+        .map(|row| row.chars().filter(|&c| c == 'O').count())
+        .sum()
+}
+
+/// The state of a single die site, independent of region membership.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Die {
+    Good,
+    Defect,
+    Absent,
+}
+
+impl Die {
+    fn from_char(ch: char) -> Option<(Die, bool)> {
+        match ch {
+            '1' => Some((Die::Good, false)),
+            'X' => Some((Die::Defect, false)),
+            '.' => Some((Die::Absent, false)),
+            'Z' => Some((Die::Good, true)),
+            '*' => Some((Die::Defect, true)),
+            '-' => Some((Die::Absent, true)),
+            _ => None,
+        }
+    }
+
+    /// The glyph for this die given whether it lies inside a marked region.
+    pub fn to_char(self, in_region: bool) -> char {
+        match (self, in_region) {
+            (Die::Good, false) => '1',
+            (Die::Defect, false) => 'X',
+            (Die::Absent, false) => '.',
+            (Die::Good, true) => 'Z',
+            (Die::Defect, true) => '*',
+            (Die::Absent, true) => '-',
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WaferMap {
-    grid: Vec<Vec<char>>,
+    grid: Vec<Vec<Die>>,
+    /// Cells that arrived already marked as in-region, used by
+    /// [`WaferMap::marked_region`] to recover a previous run's placement.
+    marked: Vec<Vec<bool>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,16 +113,24 @@ pub enum ParseError {
 
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Rows and columns are reported 1-based to match what a text editor
+        // shows the user.
         match self {
             ParseError::WrongRowCount(n) => {
-                write!(f, "expected {BOARD_SIZE} rows, found {n}")
+                write!(f, "expected {BOARD_SIZE} wafer rows, found {n}")
             }
             ParseError::WrongRowLength { row, len } => {
-                write!(f, "row {row} has length {len}, expected {BOARD_SIZE}")
+                write!(
+                    f,
+                    "row {} has length {len}, expected {BOARD_SIZE}",
+                    row + 1
+                )
             }
             ParseError::InvalidChar { row, col, ch } => write!(
                 f,
-                "row {row}, col {col}: invalid character '{ch}' (expected '.', 'X', or '1')"
+                "row {}, col {}: invalid character '{ch}' (expected one of '.', 'X', '1', 'Z', '*', '-')",
+                row + 1,
+                col + 1
             ),
         }
     }
@@ -61,33 +140,134 @@ impl std::error::Error for ParseError {}
 
 impl WaferMap {
     pub fn parse(input: &str) -> Result<Self, ParseError> {
-        let rows: Vec<&str> = input.lines().filter(|l| !l.trim().is_empty()).collect();
+        // Drop `#` comment lines anywhere, but only trim blank lines at the
+        // ends: a blank line in the middle of the grid is a malformed file,
+        // not something to silently paper over by shifting rows up.
+        let mut rows: Vec<&str> = input
+            .lines()
+            .map(|l| l.trim_end_matches('\r'))
+            .filter(|l| !l.trim_start().starts_with('#'))
+            .collect();
+        while rows.first().is_some_and(|l| l.trim().is_empty()) {
+            rows.remove(0);
+        }
+        while rows.last().is_some_and(|l| l.trim().is_empty()) {
+            rows.pop();
+        }
+
         if rows.len() != BOARD_SIZE {
             return Err(ParseError::WrongRowCount(rows.len()));
         }
 
         let mut grid = Vec::with_capacity(BOARD_SIZE);
+        let mut marked = Vec::with_capacity(BOARD_SIZE);
         for (r, row) in rows.iter().enumerate() {
-            let chars: Vec<char> = row.trim_end_matches('\r').chars().collect();
+            // Trailing whitespace is a plausible accident in hand-edited
+            // ASCII art, so tolerate it rather than failing on row length.
+            let chars: Vec<char> = row.trim_end().chars().collect();
             if chars.len() != BOARD_SIZE {
                 return Err(ParseError::WrongRowLength {
                     row: r,
                     len: chars.len(),
                 });
             }
+
+            let mut die_row = Vec::with_capacity(BOARD_SIZE);
+            let mut mark_row = Vec::with_capacity(BOARD_SIZE);
             for (c, &ch) in chars.iter().enumerate() {
-                if ch != '.' && ch != 'X' && ch != '1' {
-                    return Err(ParseError::InvalidChar { row: r, col: c, ch });
-                }
+                let (die, in_region) = Die::from_char(ch)
+                    .ok_or(ParseError::InvalidChar { row: r, col: c, ch })?;
+                die_row.push(die);
+                mark_row.push(in_region);
             }
-            grid.push(chars);
+            grid.push(die_row);
+            marked.push(mark_row);
         }
 
-        Ok(WaferMap { grid })
+        Ok(WaferMap { grid, marked })
     }
 
-    pub fn get(&self, row: usize, col: usize) -> char {
+    pub fn get(&self, row: usize, col: usize) -> Die {
         self.grid[row][col]
+    }
+
+    /// Recovers the region recorded in a previously marked file, if the
+    /// marked cells exactly match some legal placement of the mask. Returns
+    /// `None` for an unmarked map, or if the marks do not form a valid
+    /// footprint (a hand-edited file, say).
+    pub fn marked_region(&self) -> Option<BestRegion> {
+        if self.marked.iter().flatten().all(|&m| !m) {
+            return None;
+        }
+        let mask = mask();
+        for row in 0..=(BOARD_SIZE - MASK_SIZE) {
+            for col in 0..=(BOARD_SIZE - MASK_SIZE) {
+                let matches = (0..BOARD_SIZE).all(|r| {
+                    (0..BOARD_SIZE).all(|c| {
+                        let inside = r >= row
+                            && r < row + MASK_SIZE
+                            && c >= col
+                            && c < col + MASK_SIZE
+                            && mask[r - row][c - col];
+                        inside == self.marked[r][c]
+                    })
+                });
+                if matches {
+                    return Some(self.evaluate(row, col));
+                }
+            }
+        }
+        None
+    }
+
+    /// Scores a single placement of the mask with its top-left corner at
+    /// (`row`, `col`).
+    fn evaluate(&self, row: usize, col: usize) -> BestRegion {
+        let mask = mask();
+        let mut stats = RegionStats::default();
+        for (dr, mask_row) in mask.iter().enumerate() {
+            for (dc, &covered) in mask_row.iter().enumerate() {
+                if !covered {
+                    continue;
+                }
+                match self.grid[row + dr][col + dc] {
+                    Die::Good => stats.good += 1,
+                    Die::Defect => stats.defect += 1,
+                    Die::Absent => stats.overhang += 1,
+                }
+            }
+        }
+        BestRegion { row, col, stats }
+    }
+}
+
+/// Why a placement scored the way it did: how many good die it captures, how
+/// many defect die it is forced to carry, and how many of its sites hang off
+/// the edge of the wafer onto nothing.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RegionStats {
+    pub good: usize,
+    pub defect: usize,
+    pub overhang: usize,
+}
+
+impl RegionStats {
+    /// Total die sites the region occupies. Always equals [`mask_site_count`].
+    pub fn sites(&self) -> usize {
+        self.good + self.defect + self.overhang
+    }
+
+    /// Good die as a fraction of *present* die (good + defect), i.e. the
+    /// yield of the silicon actually under the region. Overhang is excluded
+    /// because an absent site is not a failed die. Returns 0.0 if the region
+    /// covers no present die at all.
+    pub fn yield_fraction(&self) -> f64 {
+        let present = self.good + self.defect;
+        if present == 0 {
+            0.0
+        } else {
+            self.good as f64 / present as f64
+        }
     }
 }
 
@@ -95,178 +275,76 @@ impl WaferMap {
 pub struct BestRegion {
     pub row: usize,
     pub col: usize,
-    pub good_die_count: usize,
+    pub stats: RegionStats,
 }
 
-/// Slides the 11x11 mask over every position where it fits fully inside the
-/// 17x17 board and returns the placement covering the most good ('1') die.
-/// Ties are broken in favor of the first placement found (row-major order).
-pub fn find_best_region(map: &WaferMap) -> BestRegion {
-    let mask = mask();
+/// Scores every position where the 11x11 mask fits fully inside the 17x17
+/// board, best first. Ties are broken in favor of the earlier placement in
+/// row-major order, so the ordering is total and deterministic.
+pub fn rank_placements(map: &WaferMap) -> Vec<BestRegion> {
     let max_offset = BOARD_SIZE - MASK_SIZE;
-
-    let mut best = BestRegion {
-        row: 0,
-        col: 0,
-        good_die_count: 0,
-    };
-    let mut best_found = false;
-
-    for row in 0..=max_offset {
-        for col in 0..=max_offset {
-            let mut good = 0;
-            for dr in 0..MASK_SIZE {
-                for dc in 0..MASK_SIZE {
-                    if mask[dr][dc] && map.get(row + dr, col + dc) == '1' {
-                        good += 1;
-                    }
-                }
-            }
-            if !best_found || good > best.good_die_count {
-                best = BestRegion {
-                    row,
-                    col,
-                    good_die_count: good,
-                };
-                best_found = true;
-            }
-        }
-    }
-
-    best
+    let mut placements: Vec<BestRegion> = (0..=max_offset)
+        .flat_map(|row| (0..=max_offset).map(move |col| (row, col)))
+        .map(|(row, col)| map.evaluate(row, col))
+        .collect();
+    // Stable sort over a row-major-ordered vector, so equal scores keep their
+    // row-major relative order and the first-wins tie-break holds.
+    placements.sort_by_key(|p| std::cmp::Reverse(p.stats.good));
+    placements
 }
 
-/// Renders a copy of `map` with every present die ('1' or 'X') inside the
-/// winning mask footprint replaced with 'Z'. Non-present ('.') cells are left
-/// untouched even when the mask overhangs them.
+/// Returns the placement covering the most good ('1') die. Ties are broken in
+/// favor of the first placement found (row-major order).
+pub fn find_best_region(map: &WaferMap) -> BestRegion {
+    // The board is strictly larger than the mask, so at least one placement
+    // always exists and this cannot panic.
+    rank_placements(map)
+        .into_iter()
+        .next()
+        .expect("mask always fits on the board")
+}
+
+/// Renders `map` with the winning region's cells rewritten in the in-region
+/// alphabet (`Z`/`*`/`-`), without the `#` header. Absent cells under the
+/// mask become `-` to make wasted overhang sites visible.
 pub fn mark_region(map: &WaferMap, region: &BestRegion) -> String {
     let mask = mask();
-    let mut grid = map.grid.clone();
+    let mut out = String::with_capacity(BOARD_SIZE * (BOARD_SIZE + 1));
 
-    for dr in 0..MASK_SIZE {
-        for dc in 0..MASK_SIZE {
-            if mask[dr][dc] {
-                let (r, c) = (region.row + dr, region.col + dc);
-                if grid[r][c] == '1' || grid[r][c] == 'X' {
-                    grid[r][c] = 'Z';
-                }
-            }
+    for r in 0..BOARD_SIZE {
+        for c in 0..BOARD_SIZE {
+            let in_region = r >= region.row
+                && r < region.row + MASK_SIZE
+                && c >= region.col
+                && c < region.col + MASK_SIZE
+                && mask[r - region.row][c - region.col];
+            out.push(map.get(r, c).to_char(in_region));
         }
+        out.push('\n');
     }
 
-    grid.iter()
-        .map(|row| row.iter().collect::<String>())
-        .collect::<Vec<_>>()
-        .join("\n")
-        + "\n"
+    out
+}
+
+/// Renders the full self-describing report: a three-line `#` header carrying
+/// the headline numbers and the legend, followed by the marked grid.
+pub fn render_report(map: &WaferMap, region: &BestRegion) -> String {
+    let s = &region.stats;
+    format!(
+        "# yield_max 2  region=row{},col{}\n\
+         # good={} defect={} overhang={} sites={} yield={:.1}%\n\
+         # {}\n{}",
+        region.row,
+        region.col,
+        s.good,
+        s.defect,
+        s.overhang,
+        s.sites(),
+        s.yield_fraction() * 100.0,
+        LEGEND,
+        mark_region(map, region),
+    )
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const SAMPLE: &str = "\
-.....1111111.....
-...XX111111XXX...
-..X11X111X1X111..
-.XXX1111111X111X.
-.XXXX1111XX11X1X.
-XXXXX1X111111XX1X
-XXXXXX1111111X1XX
-X1X111X1X1X11X1XX
-XXX1XXXXXXX111XXX
-1XX1XXX1X11X11XX1
-XXXXXXXXX1111X11X
-.11XXXXX11111X11.
-.X1XXX1X11111XXX.
-..1XX1XXXXX1111..
-...XXXXXXXXXXX...
-....X11111X1X....
-.......XXXX......
-";
-
-    #[test]
-    fn parses_sample_wafer() {
-        let map = WaferMap::parse(SAMPLE).expect("valid sample should parse");
-        assert_eq!(map.get(0, 5), '1');
-        assert_eq!(map.get(0, 0), '.');
-        assert_eq!(map.get(1, 3), 'X');
-    }
-
-    #[test]
-    fn rejects_wrong_row_count() {
-        let err = WaferMap::parse("111\n111\n").unwrap_err();
-        assert_eq!(err, ParseError::WrongRowCount(2));
-    }
-
-    #[test]
-    fn rejects_wrong_row_length() {
-        let bad = SAMPLE.replacen(".....1111111.....", ".....1111111....", 1);
-        let err = WaferMap::parse(&bad).unwrap_err();
-        assert_eq!(
-            err,
-            ParseError::WrongRowLength {
-                row: 0,
-                len: BOARD_SIZE - 1
-            }
-        );
-    }
-
-    #[test]
-    fn rejects_invalid_char() {
-        let bad = SAMPLE.replacen('.', "?", 1);
-        let err = WaferMap::parse(&bad).unwrap_err();
-        assert_eq!(
-            err,
-            ParseError::InvalidChar {
-                row: 0,
-                col: 0,
-                ch: '?'
-            }
-        );
-    }
-
-    // Expected value computed independently (Python re-implementation of the
-    // same sliding-window search) against the sample wafer above.
-    #[test]
-    fn finds_known_best_region_for_sample_wafer() {
-        let map = WaferMap::parse(SAMPLE).unwrap();
-        let best = find_best_region(&map);
-        assert_eq!(
-            best,
-            BestRegion {
-                row: 0,
-                col: 5,
-                good_die_count: 63
-            }
-        );
-    }
-
-    #[test]
-    fn mark_region_only_touches_mask_footprint() {
-        let map = WaferMap::parse(SAMPLE).unwrap();
-        let best = find_best_region(&map);
-        let marked = mark_region(&map, &best);
-        let marked_rows: Vec<Vec<char>> = marked.lines().map(|l| l.chars().collect()).collect();
-        let mask = mask();
-
-        for r in 0..BOARD_SIZE {
-            for c in 0..BOARD_SIZE {
-                let inside_mask = r >= best.row
-                    && r < best.row + MASK_SIZE
-                    && c >= best.col
-                    && c < best.col + MASK_SIZE
-                    && mask[r - best.row][c - best.col];
-
-                let original = map.get(r, c);
-                let marked_cell = marked_rows[r][c];
-
-                if inside_mask && (original == '1' || original == 'X') {
-                    assert_eq!(marked_cell, 'Z');
-                } else {
-                    assert_eq!(marked_cell, original);
-                }
-            }
-        }
-    }
-}
+mod tests;
