@@ -1,0 +1,24 @@
+# fixture: messy_whitespace
+# expect: row=0 col=5 good=63 defect=29 overhang=1 -- identical to
+# test_wafer.txt despite CRLF endings, trailing spaces on every row, and
+# blank lines around the grid. All three are tolerated.
+
+.....1111111.....  
+...XX111111XXX...  
+..X11X111X1X111..  
+.XXX1111111X111X.  
+.XXXX1111XX11X1X.  
+XXXXX1X111111XX1X  
+XXXXXX1111111X1XX  
+X1X111X1X1X11X1XX  
+XXX1XXXXXXX111XXX  
+1XX1XXX1X11X11XX1  
+XXXXXXXXX1111X11X  
+.11XXXXX11111X11.  
+.X1XXX1X11111XXX.  
+..1XX1XXXXX1111..  
+...XXXXXXXXXXX...  
+....X11111X1X....  
+.......XXXX......  
+
+

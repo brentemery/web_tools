@@ -1,0 +1,21 @@
+# fixture: center_cluster
+# Good die clustered in the middle of the wafer. The region should settle
+# near the centre rather than drifting to an edge.
+# expect: row=3 col=3 good=69 defect=24 overhang=0
+.....XXXXXXX.....
+...XXXXXXXXXXX...
+..XXXXXXXXXXXXX..
+.XXXXXXXXXXXXXXX.
+.XXXXX11111XXXXX.
+XXXXX1111111XXXXX
+XXXX111111111XXXX
+XXXX111111111XXXX
+XXXX111111111XXXX
+XXXX111111111XXXX
+XXXX111111111XXXX
+.XXXX1111111XXXX.
+.XXXXX11111XXXXX.
+..XXXXXXXXXXXXX..
+...XXXXXXXXXXX...
+....XXXXXXXXX....
+.......XXXX......

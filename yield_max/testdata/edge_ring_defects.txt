@@ -1,0 +1,21 @@
+# fixture: edge_ring_defects
+# A defective ring around the wafer edge with a good interior -- the classic
+# edge-exclusion pattern, and the case where centring matters most.
+# expect: row=3 col=3 good=93 defect=0 overhang=0
+.....XXXXXXX.....
+...XXXXXXXXXXX...
+..XXXXXX1XXXXXX..
+.XXXX1111111XXXX.
+.XXX111111111XXX.
+XXX11111111111XXX
+XXX11111111111XXX
+XXX11111111111XXX
+XX1111111111111XX
+XXX11111111111XXX
+XXX11111111111XXX
+.XX11111111111XX.
+.XXX111111111XXX.
+..XXX1111111XXX..
+...XXXXX1XXXXX...
+....XXXXXXXXX....
+.......XXXX......

@@ -220,3 +220,152 @@ fn mask_matches_published_shape_and_site_count() {
     assert_eq!(MASK_TEMPLATE.len(), MASK_SIZE);
     assert!(MASK_TEMPLATE.iter().all(|r| r.len() == MASK_SIZE));
 }
+
+// ---------------------------------------------------------------------------
+// Fixture files in testdata/
+//
+// Each valid fixture carries its own expected answer in a `# expect:` header,
+// so the assertion lives next to the data it describes and a new fixture is
+// picked up just by dropping the file in. The expected values were computed by
+// an independent Python implementation of the search, not recorded from this
+// code, so these tests can catch a regression rather than merely pinning
+// current behavior.
+// ---------------------------------------------------------------------------
+
+/// Reads `key=value` pairs off the fixture's `# expect:` line.
+fn expectations(text: &str) -> Option<BestRegion> {
+    let line = text
+        .lines()
+        .find(|l| l.starts_with("# expect:"))?
+        .trim_start_matches("# expect:");
+    let mut fields = std::collections::HashMap::new();
+    for pair in line.split_whitespace() {
+        let (k, v) = pair.split_once('=')?;
+        fields.insert(k, v.parse::<usize>().ok()?);
+    }
+    Some(BestRegion {
+        row: *fields.get("row")?,
+        col: *fields.get("col")?,
+        stats: RegionStats {
+            good: *fields.get("good")?,
+            defect: *fields.get("defect")?,
+            overhang: *fields.get("overhang")?,
+        },
+    })
+}
+
+/// Every `.txt` directly inside testdata/ (excluding the invalid/ subdirectory).
+fn valid_fixtures() -> Vec<(String, String)> {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../testdata");
+    let mut out: Vec<(String, String)> = std::fs::read_dir(dir)
+        .expect("testdata/ must exist")
+        .filter_map(|e| {
+            let path = e.ok()?.path();
+            if path.extension()? != "txt" {
+                return None;
+            }
+            let name = path.file_stem()?.to_str()?.to_string();
+            Some((name, std::fs::read_to_string(&path).ok()?))
+        })
+        .collect();
+    out.sort();
+    out
+}
+
+#[test]
+fn every_valid_fixture_parses_and_matches_its_expected_result() {
+    let fixtures = valid_fixtures();
+    // Guard against the glob silently matching nothing and the test passing
+    // vacuously if testdata/ is ever moved.
+    assert!(
+        fixtures.len() >= 10,
+        "expected the fixture set, found {}",
+        fixtures.len()
+    );
+
+    let mut checked = 0;
+    for (name, text) in &fixtures {
+        let map = WaferMap::parse(text).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let best = find_best_region(&map);
+        assert_eq!(
+            best.stats.sites(),
+            mask_site_count(),
+            "{name}: a placement always covers the same number of sites"
+        );
+        if let Some(expected) = expectations(text) {
+            assert_eq!(best, expected, "{name}: result disagrees with its header");
+            checked += 1;
+        }
+    }
+    assert!(checked >= 9, "only {checked} fixtures carried expectations");
+}
+
+/// The marked fixture is the tool's own output, so re-running on it must be a
+/// no-op -- the property that makes the format safely re-enterable.
+#[test]
+fn marked_fixture_round_trips_and_reveals_its_region() {
+    let text = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../testdata/marked_roundtrip.txt"
+    ))
+    .unwrap();
+    let map = WaferMap::parse(&text).expect("marked output must parse");
+
+    let recovered = map.marked_region().expect("region should be recoverable");
+    assert_eq!((recovered.row, recovered.col), (0, 5));
+    assert_eq!(recovered.stats.good, 63);
+
+    let best = find_best_region(&map);
+    assert_eq!(best, recovered, "re-solving must find the same region");
+    // Byte-identical below the fixture's leading note lines.
+    let report = render_report(&map, &best);
+    assert!(
+        text.ends_with(&report),
+        "re-rendering must reproduce the fixture body"
+    );
+}
+
+#[test]
+fn every_invalid_fixture_is_rejected() {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../testdata/invalid");
+    let mut seen = 0;
+    for entry in std::fs::read_dir(dir).expect("testdata/invalid must exist") {
+        let path = entry.unwrap().path();
+        if path.extension().and_then(|e| e.to_str()) != Some("txt") {
+            continue;
+        }
+        let name = path.file_stem().unwrap().to_str().unwrap().to_string();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let parsed = WaferMap::parse(&text);
+
+        if name == "stray_mark" {
+            // This one is well-formed; the defect is semantic, not syntactic.
+            let map = parsed.unwrap_or_else(|e| panic!("stray_mark should parse: {e}"));
+            assert_eq!(
+                map.marked_region(),
+                None,
+                "marks matching no legal placement must not yield a region"
+            );
+        } else {
+            assert!(parsed.is_err(), "{name} should have been rejected");
+        }
+        seen += 1;
+    }
+    assert!(seen >= 8, "only found {seen} invalid fixtures");
+}
+
+/// CRLF endings, trailing spaces, and surrounding blank lines are all
+/// tolerated, and must not change the answer.
+#[test]
+fn messy_whitespace_fixture_matches_the_clean_one() {
+    let messy = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../testdata/messy_whitespace.txt"
+    ))
+    .unwrap();
+    assert!(messy.contains('\r'), "fixture should exercise CRLF");
+    assert_eq!(
+        find_best_region(&WaferMap::parse(&messy).unwrap()),
+        find_best_region(&WaferMap::parse(SAMPLE).unwrap())
+    );
+}

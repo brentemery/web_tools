@@ -1,0 +1,22 @@
+# fixture: corner_overhang
+# Good die banked into the north-east corner, pinning the region at (0,6)
+# where 6 of its 93 sites hang off the wafer. This is the fixture where the
+# overhang metric is the interesting number, not the good-die count.
+# expect: row=0 col=6 good=50 defect=37 overhang=6
+.....XXX1111.....
+...XXXXX111111...
+..XXXXXX1111111..
+.XXXXXXX11111111.
+.XXXXXXX11111111.
+XXXXXXXX111111111
+XXXXXXXX111111111
+XXXXXXXXXXXXXXXXX
+XXXXXXXXXXXXXXXXX
+XXXXXXXXXXXXXXXXX
+XXXXXXXXXXXXXXXXX
+.XXXXXXXXXXXXXXX.
+.XXXXXXXXXXXXXXX.
+..XXXXXXXXXXXXX..
+...XXXXXXXXXXX...
+....XXXXXXXXX....
+.......XXXX......
