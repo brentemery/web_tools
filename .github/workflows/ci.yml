@@ -87,7 +87,7 @@ jobs:
           fi
 
   wasm:
-    name: WASM build is reproducible
+    name: WASM bindings and smoke test
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -108,19 +108,44 @@ jobs:
         with:
           version: v0.15.0
 
-      # pkg/ is checked in so the page works from a plain static server with no
-      # build step. That only stays honest if it matches what the source
-      # produces -- otherwise the served wasm silently drifts from the code.
-      - name: Rebuild and compare against the committed pkg/
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # pkg/ is checked in so the page works from a plain static server with
+      # no build step. Keeping that honest needs two checks.
+      #
+      # Note we deliberately do NOT compare the .wasm byte-for-byte. It embeds
+      # absolute paths ($CARGO_HOME, the rustc commit hash) in panic metadata,
+      # so it legitimately differs between machines while being functionally
+      # identical. Comparing bytes would fail on every runner regardless of
+      # whether anything was actually wrong.
+
+      # 1. The committed wasm must actually work. This is the property that
+      #    matters, and a byte comparison never verified it at all.
+      - name: Committed wasm passes a functional smoke test
+        run: node smoke-test.mjs
+
+      # 2. The generated JS/TS artifacts contain no machine-specific content,
+      #    so these can be compared exactly. A drifting API surface -- an
+      #    export added in Rust but never rebuilt into pkg/ -- shows up here.
+      - name: Generated JS/TS bindings match the source
         run: |
           wasm-pack build --target web
           rm -f pkg/.gitignore   # generated, deliberately not committed
-          if ! git diff --quiet -- pkg; then
-            echo "::error::pkg/ does not match a fresh build; run 'wasm-pack build --target web' in yield_max-wasm and commit the result"
-            git diff --stat -- pkg
+          if ! git diff --quiet -- pkg/yield_max_wasm.js pkg/yield_max_wasm.d.ts \
+                                   pkg/yield_max_wasm_bg.wasm.d.ts pkg/package.json; then
+            echo "::error::pkg/ bindings are stale; run 'wasm-pack build --target web' in yield_max-wasm and commit the result"
+            git diff -- pkg/yield_max_wasm.js pkg/yield_max_wasm.d.ts \
+                        pkg/yield_max_wasm_bg.wasm.d.ts pkg/package.json
             exit 1
           fi
-          echo "pkg/ matches a fresh build."
+          echo "Bindings match a fresh build."
+
+      # 3. And the freshly built wasm must pass the same smoke test, proving
+      #    the current source is good -- not just the committed artifact.
+      - name: Freshly built wasm passes the same smoke test
+        run: node smoke-test.mjs
 
   pages:
     name: Static pages

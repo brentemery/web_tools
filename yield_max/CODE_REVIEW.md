@@ -14,8 +14,16 @@ Ships and is correct. The core algorithm, mask, CLI, and web UI all agree, and I
 independently reproduced the sample answer (**63 good die at row 0, col 5**) with a
 throwaway Python brute force. `cargo test --workspace` → 6/6 pass. `wasm-pack build
 --target web` reproduces the checked-in `pkg/` byte-for-byte (only a generated
-`.gitignore` differs, correctly not committed). The web UI loads, analyzes, and
-renders the region outline correctly in a real browser.
+`.gitignore` differs, correctly not committed).
+
+> **Correction.** That byte-for-byte claim was verified only on this machine.
+> The `.wasm` embeds absolute paths (`$CARGO_HOME`, the rustc commit hash) in
+> panic metadata, so it is *not* reproducible across machines — a CI job built
+> on that assumption failed on the first GitHub runner. See `CLAUDE.md` for
+> what is checked instead.
+
+The web UI loads, analyzes, and renders the region outline correctly in a real
+browser.
 
 Nothing here is a shipping blocker. Findings below are ordered by value.
 

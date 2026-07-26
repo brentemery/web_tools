@@ -46,9 +46,30 @@ After adding the tool's HTML entry point, add a link to it in `/home/exedev/git/
 # Build WASM (run from inside the *-wasm/ directory)
 wasm-pack build --target web
 
+# Functional check of the committed wasm (needs node)
+node smoke-test.mjs
+
 # Run Rust unit tests (no browser needed)
 cargo test
 ```
+
+### On comparing the committed `pkg/`
+
+`pkg/` is checked in so the page works from a plain static server. CI keeps it
+honest, but **does not compare `yield_max_wasm_bg.wasm` byte-for-byte**: the
+binary embeds absolute paths (`$CARGO_HOME`, the rustc commit hash) in panic
+metadata, so it differs between machines while being functionally identical.
+A byte comparison fails on every runner regardless of whether anything is
+wrong.
+
+Instead CI checks the two things that are actually meaningful and are stable
+across machines:
+
+1. `smoke-test.mjs` loads the committed wasm and asserts it computes the known
+   answer, round-trips its output, and rejects malformed input.
+2. The generated JS/TS bindings (`.js`, `.d.ts`, `package.json`) are compared
+   exactly -- they contain no machine-specific content, so a stale `pkg/` with
+   a drifted API surface is caught there.
 
 ### Serving locally
 
