@@ -1,7 +1,7 @@
 use wasm_bindgen::prelude::*;
 
 use yield_max_core::{
-    mask_site_count, rank_placements, render_report, BestRegion, WaferMap, LEGEND, MASK_TEMPLATE,
+    find_best_region, mask_site_count, render_report, BestRegion, WaferMap, LEGEND, MASK_TEMPLATE,
 };
 
 /// Scored placement of the 200mm region, carrying the full breakdown of why
@@ -72,7 +72,6 @@ impl From<&BestRegion> for Placement {
 #[wasm_bindgen]
 pub struct AnalysisResult {
     best: Placement,
-    runners_up: Vec<Placement>,
     report: String,
 }
 
@@ -83,13 +82,6 @@ impl AnalysisResult {
         self.best
     }
 
-    /// Next-best placements, best first, so the UI can show the tradeoff
-    /// against the runner-up rather than presenting the winner as inevitable.
-    #[wasm_bindgen(getter)]
-    pub fn runners_up(&self) -> Vec<Placement> {
-        self.runners_up.clone()
-    }
-
     /// The full self-describing report: `#` header plus the marked grid.
     #[wasm_bindgen(getter)]
     pub fn report(&self) -> String {
@@ -97,23 +89,13 @@ impl AnalysisResult {
     }
 }
 
-/// Number of runners-up handed to the UI.
-const RUNNERS_UP: usize = 4;
-
 #[wasm_bindgen]
 pub fn analyze_wafer(input: &str) -> Result<AnalysisResult, JsValue> {
     let map = WaferMap::parse(input).map_err(|e| JsValue::from_str(&e.to_string()))?;
-    let ranked = rank_placements(&map);
-    let best = ranked[0];
+    let best = find_best_region(&map);
 
     Ok(AnalysisResult {
         best: Placement::from(&best),
-        runners_up: ranked
-            .iter()
-            .skip(1)
-            .take(RUNNERS_UP)
-            .map(Placement::from)
-            .collect(),
         report: render_report(&map, &best),
     })
 }

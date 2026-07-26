@@ -181,17 +181,6 @@
         margin-bottom: 0.2rem;
       }
 
-      .runners {
-        font-size: 0.85rem;
-        color: var(--pico-muted-color);
-        margin-top: 1rem;
-      }
-
-      .runners table {
-        font-size: 0.85rem;
-        margin-top: 0.4rem;
-      }
-
       .file-row {
         display: flex;
         align-items: center;
@@ -289,16 +278,6 @@
               <div class="legend-item"><span class="legend-swatch region"></span>Selected 200mm region</div>
             </div>
           </div>
-        </div>
-
-        <div class="runners">
-          Next-best placements:
-          <table>
-            <thead>
-              <tr><th>Row</th><th>Col</th><th>Good</th><th>Defect</th><th>Overhang</th></tr>
-            </thead>
-            <tbody id="runners-body"></tbody>
-          </table>
         </div>
 
         <details class="raw-output">
@@ -478,28 +457,6 @@ XXXXXXXXX1111X11X
         }
       }
 
-      function renderRunnersUp(runners) {
-        const body = document.getElementById('runners-body');
-        body.textContent = '';
-        for (const p of runners) {
-          const tr = document.createElement('tr');
-          for (const value of [p.row, p.col, p.good, p.defect, p.overhang]) {
-            const td = document.createElement('td');
-            td.textContent = value;
-            tr.appendChild(td);
-          }
-          body.appendChild(tr);
-        }
-        if (runners.length === 0) {
-          const tr = document.createElement('tr');
-          const td = document.createElement('td');
-          td.colSpan = 5;
-          td.textContent = 'none';
-          tr.appendChild(td);
-          body.appendChild(tr);
-        }
-      }
-
       analyzeBtn.addEventListener('click', () => {
         clearError();
         results.hidden = true;
@@ -508,7 +465,6 @@ XXXXXXXXX1111X11X
 
         let analysis = null;
         let best = null;
-        let runners = [];
         try {
           analysis = analyze_wafer(input.value);
           // Copy everything out of WASM memory before freeing the handles.
@@ -523,12 +479,6 @@ XXXXXXXXX1111X11X
             yield_fraction: b.yield_fraction,
           };
           b.free();
-
-          runners = analysis.runners_up.map((p) => {
-            const copy = { row: p.row, col: p.col, good: p.good, defect: p.defect, overhang: p.overhang };
-            p.free();
-            return copy;
-          });
 
           lastReport = analysis.report;
         } catch (err) {
@@ -556,7 +506,6 @@ XXXXXXXXX1111X11X
           .split('\n')
           .filter((l) => l.trim().length > 0 && !l.trimStart().startsWith('#'));
         renderGrid(rows, best);
-        renderRunnersUp(runners);
 
         results.hidden = false;
         downloadBtn.hidden = false;

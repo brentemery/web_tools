@@ -40,17 +40,6 @@ export class AnalysisResult {
             wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
         }
     }
-    /**
-     * Next-best placements, best first, so the UI can show the tradeoff
-     * against the runner-up rather than presenting the winner as inevitable.
-     * @returns {Placement[]}
-     */
-    get runners_up() {
-        const ret = wasm.analysisresult_runners_up(this.__wbg_ptr);
-        var v1 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
 }
 if (Symbol.dispose) AnalysisResult.prototype[Symbol.dispose] = AnalysisResult.prototype.free;
 
@@ -185,10 +174,6 @@ function __wbg_get_imports() {
         __proto__: null,
         __wbg___wbindgen_throw_344f42d3211c4765: function(arg0, arg1) {
             throw new Error(getStringFromWasm0(arg0, arg1));
-        },
-        __wbg_placement_new: function(arg0) {
-            const ret = Placement.__wrap(arg0);
-            return ret;
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
             // Cast intrinsic for `Ref(String) -> Externref`.

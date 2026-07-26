@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use yield_max_core::{mask_site_count, rank_placements, render_report, BestRegion, WaferMap};
+use yield_max_core::{find_best_region, mask_site_count, render_report, BestRegion, WaferMap};
 
 const USAGE: &str = "\
 usage: yield_max [options] <input_path> [output_path]
@@ -18,10 +18,6 @@ Options:
   --json         Emit machine-readable JSON on stdout (including runners-up)
                  instead of the human summary.
   -h, --help     Show this help.";
-
-/// How many placements beyond the winner to include in JSON output. Enough to
-/// show the tradeoff against the next-best options without dumping all 49.
-const RUNNERS_UP: usize = 4;
 
 #[derive(Debug)]
 struct Args {
@@ -101,23 +97,14 @@ fn json_placement(p: &BestRegion) -> String {
     )
 }
 
-fn json_report(ranked: &[BestRegion], output: Option<&Path>) -> String {
-    let best = &ranked[0];
-    let runners: Vec<String> = ranked
-        .iter()
-        .skip(1)
-        .take(RUNNERS_UP)
-        .map(json_placement)
-        .collect();
+fn json_report(best: &BestRegion, output: Option<&Path>) -> String {
     let output_field = match output {
         Some(p) => format!(r#""{}""#, p.display().to_string().replace('"', "\\\"")),
         None => "null".to_string(),
     };
     format!(
-        r#"{{"version":2,"best":{},"runners_up":[{}],"placements_evaluated":{},"mask_sites":{},"output":{}}}"#,
+        r#"{{"version":2,"best":{},"mask_sites":{},"output":{}}}"#,
         json_placement(best),
-        runners.join(","),
-        ranked.len(),
         mask_site_count(),
         output_field,
     )
@@ -158,8 +145,7 @@ fn run() -> Result<(), String> {
     let map = WaferMap::parse(&input)
         .map_err(|e| format!("failed to parse {}: {e}", args.input.display()))?;
 
-    let ranked = rank_placements(&map);
-    let best = ranked[0];
+    let best = find_best_region(&map);
     let report = render_report(&map, &best);
 
     if let Some(out) = &output_path {
@@ -167,7 +153,7 @@ fn run() -> Result<(), String> {
     }
 
     if args.json {
-        println!("{}", json_report(&ranked, output_path.as_deref()));
+        println!("{}", json_report(&best, output_path.as_deref()));
         return Ok(());
     }
 
@@ -189,12 +175,6 @@ fn run() -> Result<(), String> {
         s.sites(),
         s.yield_fraction() * 100.0
     );
-    if let Some(next) = ranked.get(1) {
-        println!(
-            "  next best: (row {}, col {}) with {} good die",
-            next.row, next.col, next.stats.good
-        );
-    }
     if let Some(out) = &output_path {
         println!("Marked wafer map written to {}", out.display());
     }
@@ -279,13 +259,12 @@ mod tests {
     #[test]
     fn json_report_shape() {
         let map = WaferMap::parse(include_str!("../../test_wafer.txt")).unwrap();
-        let ranked = rank_placements(&map);
-        let json = json_report(&ranked, Some(Path::new("out.txt")));
+        let json = json_report(&find_best_region(&map), Some(Path::new("out.txt")));
         assert!(json.contains(r#""version":2"#));
         assert!(json.contains(r#""good":63"#));
         assert!(json.contains(r#""overhang":1"#));
-        assert!(json.contains(r#""placements_evaluated":49"#));
         assert!(json.contains(r#""mask_sites":93"#));
-        assert_eq!(json.matches(r#""row":"#).count(), 1 + RUNNERS_UP);
+        // Exactly one placement is reported: the winner.
+        assert_eq!(json.matches(r#""row":"#).count(), 1);
     }
 }

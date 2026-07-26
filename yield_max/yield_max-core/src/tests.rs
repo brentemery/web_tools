@@ -115,29 +115,14 @@ fn finds_known_best_region_for_sample_wafer() {
     assert_eq!(best.stats.sites(), mask_site_count());
 }
 
-#[test]
-fn ranks_all_placements_best_first() {
-    let map = WaferMap::parse(SAMPLE).unwrap();
-    let ranked = rank_placements(&map);
-    let span = BOARD_SIZE - MASK_SIZE + 1;
-    assert_eq!(ranked.len(), span * span);
-    assert!(ranked.windows(2).all(|w| w[0].stats.good >= w[1].stats.good));
-
-    // Independently verified runner-up: it captures one fewer good die but
-    // wastes no sites on overhang.
-    assert_eq!((ranked[1].row, ranked[1].col, ranked[1].stats.good), (0, 4, 62));
-    assert_eq!(ranked[1].stats.overhang, 0);
-}
-
 /// The docstring promises row-major first-wins on ties; an all-good wafer
 /// makes every placement tie, which pins the behavior.
 #[test]
 fn breaks_ties_toward_first_in_row_major_order() {
     let map = WaferMap::parse(&uniform('1')).unwrap();
-    let ranked = rank_placements(&map);
-    assert!(ranked.iter().all(|p| p.stats.good == mask_site_count()));
-    assert_eq!((ranked[0].row, ranked[0].col), (0, 0));
-    assert_eq!((ranked[1].row, ranked[1].col), (0, 1));
+    let best = find_best_region(&map);
+    assert_eq!(best.stats.good, mask_site_count());
+    assert_eq!((best.row, best.col), (0, 0));
 }
 
 #[test]

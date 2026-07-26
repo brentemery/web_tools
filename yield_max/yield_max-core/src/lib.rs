@@ -278,30 +278,24 @@ pub struct BestRegion {
     pub stats: RegionStats,
 }
 
-/// Scores every position where the 11x11 mask fits fully inside the 17x17
-/// board, best first. Ties are broken in favor of the earlier placement in
-/// row-major order, so the ordering is total and deterministic.
-pub fn rank_placements(map: &WaferMap) -> Vec<BestRegion> {
-    let max_offset = BOARD_SIZE - MASK_SIZE;
-    let mut placements: Vec<BestRegion> = (0..=max_offset)
-        .flat_map(|row| (0..=max_offset).map(move |col| (row, col)))
-        .map(|(row, col)| map.evaluate(row, col))
-        .collect();
-    // Stable sort over a row-major-ordered vector, so equal scores keep their
-    // row-major relative order and the first-wins tie-break holds.
-    placements.sort_by_key(|p| std::cmp::Reverse(p.stats.good));
-    placements
-}
-
-/// Returns the placement covering the most good ('1') die. Ties are broken in
-/// favor of the first placement found (row-major order).
+/// Returns the placement covering the most good ('1') die, scanning every
+/// position where the 11x11 mask fits fully inside the 17x17 board. Ties are
+/// broken in favor of the first placement found (row-major order).
 pub fn find_best_region(map: &WaferMap) -> BestRegion {
-    // The board is strictly larger than the mask, so at least one placement
-    // always exists and this cannot panic.
-    rank_placements(map)
-        .into_iter()
-        .next()
-        .expect("mask always fits on the board")
+    let max_offset = BOARD_SIZE - MASK_SIZE;
+    // The board is strictly larger than the mask, so (0, 0) is always a legal
+    // placement and this seed is always replaced-or-matched by a real score.
+    let mut best = map.evaluate(0, 0);
+    for row in 0..=max_offset {
+        for col in 0..=max_offset {
+            let candidate = map.evaluate(row, col);
+            // Strict `>` keeps the first placement in row-major order on ties.
+            if candidate.stats.good > best.stats.good {
+                best = candidate;
+            }
+        }
+    }
+    best
 }
 
 /// Renders `map` with the winning region's cells rewritten in the in-region

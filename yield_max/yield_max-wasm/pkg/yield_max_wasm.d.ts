@@ -10,11 +10,6 @@ export class AnalysisResult {
      * The full self-describing report: `#` header plus the marked grid.
      */
     readonly report: string;
-    /**
-     * Next-best placements, best first, so the UI can show the tradeoff
-     * against the runner-up rather than presenting the winner as inevitable.
-     */
-    readonly runners_up: Placement[];
 }
 
 /**
@@ -64,7 +59,6 @@ export interface InitOutput {
     readonly __wbg_placement_free: (a: number, b: number) => void;
     readonly analysisresult_best: (a: number) => number;
     readonly analysisresult_report: (a: number) => [number, number];
-    readonly analysisresult_runners_up: (a: number) => [number, number];
     readonly analyze_wafer: (a: number, b: number) => [number, number, number];
     readonly legend: () => [number, number];
     readonly mask_rows: () => [number, number];
@@ -78,10 +72,10 @@ export interface InitOutput {
     readonly placement_yield_fraction: (a: number) => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
-    readonly __externref_drop_slice: (a: number, b: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __externref_table_dealloc: (a: number) => void;
+    readonly __externref_drop_slice: (a: number, b: number) => void;
     readonly __wbindgen_start: () => void;
 }
 

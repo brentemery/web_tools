@@ -62,8 +62,7 @@ distinct glyph:
 
 `-` (overhang) is a real result, not filler: it means the 200mm region is
 hanging off the edge of the wafer, spending area on nothing. In the sample the
-winner wastes one site while the runner-up wastes none — a tradeoff the old
-format hid entirely.
+winning region wastes one such site — a cost the old format hid entirely.
 
 Case pairs (`Z`/`z`) were rejected deliberately: in 17x17 monospace ASCII art
 case is nearly invisible, and it makes every downstream consumer fragile to
@@ -120,7 +119,7 @@ be recovered with `WaferMap::marked_region()`.
 ```
 usage: yield_max [options] <input_path> [output_path]
 
-  --json         Machine-readable JSON on stdout, including runners-up.
+  --json         Machine-readable JSON on stdout.
   -h, --help     Show help.
 ```
 
@@ -132,8 +131,7 @@ report to stdout. The tool refuses to overwrite its own input file.
 ```json
 {"version":2,
  "best":{"row":0,"col":5,"good":63,"defect":29,"overhang":1,"sites":93,"yield":0.6848},
- "runners_up":[{"row":0,"col":4,"good":62,"defect":31,"overhang":0,...}],
- "placements_evaluated":49,"mask_sites":93,"output":"wafer_optimal.txt"}
+ "mask_sites":93,"output":"wafer_optimal.txt"}
 ```
 
 ## Layout
