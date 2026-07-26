@@ -23,6 +23,7 @@ these can catch a genuine regression.
 | `edge_ring_defects` | 3,3 | 93 | 0 | 0 | Classic edge-exclusion ring; a perfect region exists inside it. |
 | `messy_whitespace` | 0,5 | 63 | 29 | 1 | CRLF, trailing spaces, and surrounding blank lines are all tolerated. |
 | `marked_roundtrip` | 0,5 | 63 | 29 | 1 | The tool's own output; re-running must reproduce it byte for byte. |
+| `utf8_bom` | 0,5 | 63 | 29 | 1 | A BOM at byte 0 is stripped, not reported as a bogus 18-character row. |
 
 Between them `corner_nw`, `corner_se`, and `corner_overhang` cover both ends of
 the row and column placement range, which is where off-by-one errors surface.
@@ -30,9 +31,18 @@ the row and column placement range, which is where off-by-one errors surface.
 ## invalid/
 
 Files that must be **rejected**, each naming its expected error. Covers wrong
-row count and row length, characters outside the alphabet, and a lowercase `z`
+row count and row length, characters outside the alphabet, a lowercase `z`
 (case pairs were deliberately rejected as a format choice, so `z` is not an
-alias for `Z`).
+alias for `Z`), an empty file, and CR-only line endings.
+
+Three cover characters that are invisible or misleading on screen, where the
+error message has to name what it found rather than print it: `tab_character`,
+`nbsp_character` (U+00A0, indistinguishable from a space), and `fullwidth_one`
+(U+FF11, a homoglyph that reads as a good die but is not one).
+
+`comment_inside_grid.txt` mirrors `blank_line_inside.txt`: comments are a
+header/footer convention, so one interleaved with the grid means the file was
+assembled wrongly.
 
 `blank_line_inside.txt` is the important one: a blank line in the middle of the
 grid used to be silently dropped, which shifted every later row up and produced

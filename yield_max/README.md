@@ -102,6 +102,24 @@ Because the alphabet is lossless, **the output is valid input**: re-running the
 tool on its own report reproduces it byte for byte, and the recorded region can
 be recovered with `WaferMap::marked_region()`.
 
+## Input validation
+
+Anything that is not unambiguously a wafer map is rejected; nothing malformed
+is silently reinterpreted. Inputs over 64 KB are refused (checked against the
+file size before reading, so a huge file costs a stat rather than the memory).
+
+Two cases get special handling because the naive behavior misleads:
+
+- A **UTF-8 BOM** is stripped. Left in place it reports "row 1 has length 18"
+  about a row the user can see is 17 characters, with an invisible cause.
+- **Invisible or lookalike characters** are named in the error, not printed:
+  a tab, a non-breaking space, or a fullwidth `１` would otherwise produce a
+  message that looks blank or identical to a legal one.
+
+Marks in the input that match no legal mask placement are overwritten by the
+run's result, but the tool **warns first** rather than discarding a hand edit
+silently.
+
 ## Ties and edge cases
 
 - **Ties** are broken in favor of the earlier placement in row-major order.

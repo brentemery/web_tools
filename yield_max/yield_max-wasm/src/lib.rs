@@ -73,6 +73,7 @@ impl From<&BestRegion> for Placement {
 pub struct AnalysisResult {
     best: Placement,
     report: String,
+    warning: Option<String>,
 }
 
 #[wasm_bindgen]
@@ -80,6 +81,13 @@ impl AnalysisResult {
     #[wasm_bindgen(getter)]
     pub fn best(&self) -> Placement {
         self.best
+    }
+
+    /// A non-fatal advisory, or the empty string. Currently set when the
+    /// input carried region marks that this run will overwrite.
+    #[wasm_bindgen(getter)]
+    pub fn warning(&self) -> String {
+        self.warning.clone().unwrap_or_default()
     }
 
     /// The full self-describing report: `#` header plus the marked grid.
@@ -92,11 +100,17 @@ impl AnalysisResult {
 #[wasm_bindgen]
 pub fn analyze_wafer(input: &str) -> Result<AnalysisResult, JsValue> {
     let map = WaferMap::parse(input).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let warning = map.has_inconsistent_marks().then(|| {
+        "This map contains region marks that match no legal 200mm placement; \
+         they have been replaced by this run's result."
+            .to_string()
+    });
     let best = find_best_region(&map);
 
     Ok(AnalysisResult {
         best: Placement::from(&best),
         report: render_report(&map, &best),
+        warning,
     })
 }
 

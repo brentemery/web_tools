@@ -113,8 +113,14 @@ pub struct WaferMap {
     marked: Vec<Vec<bool>>,
 }
 
+/// Largest input we will look at. A valid map is ~300 bytes; this leaves room
+/// for a generous comment header while refusing to allocate for a file that
+/// cannot possibly be a wafer map.
+pub const MAX_INPUT_BYTES: usize = 64 * 1024;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParseError {
+    TooLarge { bytes: usize },
     WrongRowCount(usize),
     WrongRowLength { row: usize, len: usize },
     InvalidChar { row: usize, col: usize, ch: char },
@@ -125,6 +131,11 @@ impl std::fmt::Display for ParseError {
         // Rows and columns are reported 1-based to match what a text editor
         // shows the user.
         match self {
+            ParseError::TooLarge { bytes } => write!(
+                f,
+                "input is {bytes} bytes, larger than the {MAX_INPUT_BYTES} byte limit; \
+                 a wafer map is {BOARD_SIZE} rows of {BOARD_SIZE} characters"
+            ),
             ParseError::WrongRowCount(n) => {
                 write!(f, "expected {BOARD_SIZE} wafer rows, found {n}")
             }
@@ -137,9 +148,10 @@ impl std::fmt::Display for ParseError {
             }
             ParseError::InvalidChar { row, col, ch } => write!(
                 f,
-                "row {}, col {}: invalid character '{ch}' (expected one of '.', 'X', '1', 'Z', '*', '-')",
+                "row {}, col {}: invalid character {} (expected one of '.', 'X', '1', 'Z', '*', '-')",
                 row + 1,
-                col + 1
+                col + 1,
+                describe_char(*ch)
             ),
         }
     }
@@ -147,20 +159,56 @@ impl std::fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
+/// Describes a character for an error message. Whitespace and non-printing
+/// characters are named rather than printed, so a message about a tab, a
+/// non-breaking space, or a zero-width character is not itself invisible.
+fn describe_char(ch: char) -> String {
+    let name = match ch {
+        '\t' => Some("tab"),
+        '\u{a0}' => Some("non-breaking space"),
+        '\u{200b}' => Some("zero-width space"),
+        '\u{feff}' => Some("byte-order mark"),
+        ' ' => Some("space"),
+        _ => None,
+    };
+    match name {
+        Some(n) => format!("U+{:04X} ({n})", ch as u32),
+        None if ch.is_control() || !ch.is_ascii() => {
+            format!("'{}' (U+{:04X})", ch.escape_debug(), ch as u32)
+        }
+        None => format!("'{ch}'"),
+    }
+}
+
 impl WaferMap {
     pub fn parse(input: &str) -> Result<Self, ParseError> {
-        // Drop `#` comment lines anywhere, but only trim blank lines at the
-        // ends: a blank line in the middle of the grid is a malformed file,
-        // not something to silently paper over by shifting rows up.
+        // Bail before allocating for something that cannot be a wafer map.
+        if input.len() > MAX_INPUT_BYTES {
+            return Err(ParseError::TooLarge { bytes: input.len() });
+        }
+
+        // A UTF-8 BOM is invisible in most editors, so left in place it would
+        // produce a "row 1 has length 18" complaint about a row the user can
+        // plainly see is 17 characters. Strip it instead.
+        let input = input.strip_prefix('\u{feff}').unwrap_or(input);
+
+        // Drop `#` comment lines, but only at the top and bottom: a comment
+        // interleaved with the grid is as suspect as a blank line there, since
+        // it suggests the file was assembled wrongly.
         let mut rows: Vec<&str> = input
             .lines()
             .map(|l| l.trim_end_matches('\r'))
-            .filter(|l| !l.trim_start().starts_with('#'))
             .collect();
-        while rows.first().is_some_and(|l| l.trim().is_empty()) {
+        while rows
+            .first()
+            .is_some_and(|l| l.trim().is_empty() || l.trim_start().starts_with('#'))
+        {
             rows.remove(0);
         }
-        while rows.last().is_some_and(|l| l.trim().is_empty()) {
+        while rows
+            .last()
+            .is_some_and(|l| l.trim().is_empty() || l.trim_start().starts_with('#'))
+        {
             rows.pop();
         }
 
@@ -200,12 +248,24 @@ impl WaferMap {
         self.grid[row][col]
     }
 
+    /// True if the input carried any in-region glyph (`Z`, `*`, `-`).
+    pub fn has_marks(&self) -> bool {
+        self.marked.iter().flatten().any(|&m| m)
+    }
+
+    /// True if the input carried marks that match no legal mask placement.
+    /// Such marks are silently overwritten when the report is rendered, so
+    /// callers should warn rather than destroy the user's edit unannounced.
+    pub fn has_inconsistent_marks(&self) -> bool {
+        self.has_marks() && self.marked_region().is_none()
+    }
+
     /// Recovers the region recorded in a previously marked file, if the
     /// marked cells exactly match some legal placement of the mask. Returns
     /// `None` for an unmarked map, or if the marks do not form a valid
     /// footprint (a hand-edited file, say).
     pub fn marked_region(&self) -> Option<BestRegion> {
-        if self.marked.iter().flatten().all(|&m| !m) {
+        if !self.has_marks() {
             return None;
         }
         let mask = mask();

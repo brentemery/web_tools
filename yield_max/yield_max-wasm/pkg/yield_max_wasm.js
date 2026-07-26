@@ -40,6 +40,23 @@ export class AnalysisResult {
             wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
         }
     }
+    /**
+     * A non-fatal advisory, or the empty string. Currently set when the
+     * input carried region marks that this run will overwrite.
+     * @returns {string}
+     */
+    get warning() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.analysisresult_warning(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
 }
 if (Symbol.dispose) AnalysisResult.prototype[Symbol.dispose] = AnalysisResult.prototype.free;
 

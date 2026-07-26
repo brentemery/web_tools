@@ -46,6 +46,14 @@
         color: var(--pico-del-color, #c0392b);
       }
 
+      #warning {
+        margin-top: 1.5rem;
+        padding: 0.6rem 0.9rem;
+        border-left: 3px solid #b8860b;
+        background: rgba(184, 134, 11, 0.08);
+        font-size: 0.9rem;
+      }
+
       #results {
         margin-top: 2rem;
       }
@@ -254,6 +262,7 @@
       </div>
 
       <div id="error" role="alert" hidden></div>
+      <div id="warning" role="status" hidden></div>
 
       <div id="results" hidden>
         <p class="summary">
@@ -314,6 +323,7 @@ XXXXXXXXX1111X11X
 
       const input = document.getElementById('wafer-input');
       const errorBox = document.getElementById('error');
+      const warningBox = document.getElementById('warning');
       const results = document.getElementById('results');
       const grid = document.getElementById('wafer-grid');
       const tooltip = document.getElementById('cell-tooltip');
@@ -332,11 +342,18 @@ XXXXXXXXX1111X11X
         errorBox.hidden = false;
       }
 
+      function showWarning(message) {
+        warningBox.textContent = message;
+        warningBox.hidden = false;
+      }
+
       function clearError() {
         // Clear the text too, not just visibility: this is a role="alert",
         // and stale content should not linger in the accessibility tree.
         errorBox.textContent = '';
         errorBox.hidden = true;
+        warningBox.textContent = '';
+        warningBox.hidden = true;
       }
 
       try {
@@ -353,9 +370,21 @@ XXXXXXXXX1111X11X
         input.value = SAMPLE;
       });
 
+      // Mirrors MAX_INPUT_BYTES in yield_max-core: refuse to read a file that
+      // cannot be a wafer map rather than pulling it into memory first.
+      const MAX_INPUT_BYTES = 64 * 1024;
+
       fileInput.addEventListener('change', async () => {
         const file = fileInput.files?.[0];
         if (!file) return;
+        if (file.size > MAX_INPUT_BYTES) {
+          showError(
+            `${file.name} is ${file.size} bytes, larger than the ${MAX_INPUT_BYTES} byte limit; ` +
+              'a wafer map is 17 rows of 17 characters.'
+          );
+          fileInput.value = '';
+          return;
+        }
         try {
           input.value = await file.text();
           clearError();
@@ -465,6 +494,7 @@ XXXXXXXXX1111X11X
 
         let analysis = null;
         let best = null;
+        let warningText = '';
         try {
           analysis = analyze_wafer(input.value);
           // Copy everything out of WASM memory before freeing the handles.
@@ -481,6 +511,7 @@ XXXXXXXXX1111X11X
           b.free();
 
           lastReport = analysis.report;
+          warningText = analysis.warning;
         } catch (err) {
           showError(typeof err === 'string' ? err : err.message || String(err));
           return;
@@ -507,6 +538,7 @@ XXXXXXXXX1111X11X
           .filter((l) => l.trim().length > 0 && !l.trimStart().startsWith('#'));
         renderGrid(rows, best);
 
+        if (warningText) showWarning(warningText);
         results.hidden = false;
         downloadBtn.hidden = false;
       });

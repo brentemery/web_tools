@@ -3,7 +3,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use yield_max_core::{find_best_region, mask_site_count, render_report, BestRegion, WaferMap};
+use yield_max_core::{
+    find_best_region, mask_site_count, render_report, BestRegion, WaferMap, MAX_INPUT_BYTES,
+};
 
 const USAGE: &str = "\
 usage: yield_max [options] <input_path> [output_path]
@@ -139,11 +141,35 @@ fn run() -> Result<(), String> {
         }
     }
 
+    // Check the size on disk first: parse() would also reject an oversized
+    // input, but only after read_to_string has pulled the whole thing into
+    // memory. A 200MB file should cost us a stat, not 200MB of RSS.
+    if let Ok(meta) = fs::metadata(&args.input) {
+        if meta.is_file() && meta.len() > MAX_INPUT_BYTES as u64 {
+            return Err(format!(
+                "{} is {} bytes, larger than the {MAX_INPUT_BYTES} byte limit; \
+                 a wafer map is 17 rows of 17 characters",
+                args.input.display(),
+                meta.len()
+            ));
+        }
+    }
+
     let input = fs::read_to_string(&args.input)
         .map_err(|e| format!("failed to read {}: {e}", args.input.display()))?;
 
     let map = WaferMap::parse(&input)
         .map_err(|e| format!("failed to parse {}: {e}", args.input.display()))?;
+
+    // Marks that match no legal placement get overwritten by the report, so
+    // say so rather than silently discarding what the user hand-edited.
+    if map.has_inconsistent_marks() {
+        eprintln!(
+            "warning: {} contains region marks that match no legal 200mm placement; \
+             they will be replaced by this run's result",
+            args.input.display()
+        );
+    }
 
     let best = find_best_region(&map);
     let report = render_report(&map, &best);

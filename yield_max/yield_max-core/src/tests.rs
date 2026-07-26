@@ -369,3 +369,118 @@ fn messy_whitespace_fixture_matches_the_clean_one() {
         find_best_region(&WaferMap::parse(SAMPLE).unwrap())
     );
 }
+
+// ---------------------------------------------------------------------------
+// Input validation. These pin down what we accept and, more importantly, that
+// what we reject fails loudly rather than being silently reinterpreted.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn rejects_oversized_input() {
+    let huge = "1".repeat(MAX_INPUT_BYTES + 1);
+    assert_eq!(
+        WaferMap::parse(&huge).unwrap_err(),
+        ParseError::TooLarge {
+            bytes: MAX_INPUT_BYTES + 1
+        }
+    );
+    // The limit is generous enough for a real map plus a comment header.
+    assert!(SAMPLE.len() < MAX_INPUT_BYTES / 10);
+}
+
+/// A BOM is invisible in most editors, so reporting "row 1 has length 18"
+/// about a row the user sees as 17 characters would be actively misleading.
+#[test]
+fn strips_utf8_bom() {
+    let with_bom = format!("\u{feff}{SAMPLE}");
+    assert_eq!(WaferMap::parse(&with_bom), WaferMap::parse(SAMPLE));
+}
+
+#[test]
+fn rejects_invisible_characters_with_a_legible_message() {
+    // Each of these is either invisible or indistinguishable from a legal
+    // character at a glance, so the message must name it.
+    for (ch, expected) in [
+        ('\t', "tab"),
+        ('\u{a0}', "non-breaking space"),
+        ('\u{200b}', "zero-width space"),
+        (' ', "space"),
+    ] {
+        let bad = SAMPLE.replacen('.', &ch.to_string(), 1);
+        let msg = WaferMap::parse(&bad).unwrap_err().to_string();
+        assert!(
+            msg.contains(expected) && msg.contains("U+"),
+            "{ch:?} produced an unhelpful message: {msg}"
+        );
+    }
+}
+
+/// A homoglyph: fullwidth '１' looks like a good die but is not one.
+#[test]
+fn rejects_non_ascii_lookalikes() {
+    let bad = SAMPLE.replacen('1', "\u{ff11}", 1);
+    let msg = WaferMap::parse(&bad).unwrap_err().to_string();
+    assert!(msg.contains("U+FF11"), "got: {msg}");
+}
+
+#[test]
+fn rejects_empty_and_contentless_input() {
+    for input in ["", "   \n\n  \n", "# only a comment\n# and another\n"] {
+        assert_eq!(
+            WaferMap::parse(input).unwrap_err(),
+            ParseError::WrongRowCount(0),
+            "input {input:?} should be rejected"
+        );
+    }
+}
+
+/// Comments are a header/footer convention. One interleaved with the grid
+/// suggests the file was assembled wrongly, so treat it like a blank line
+/// there and refuse rather than quietly stitching the halves together.
+#[test]
+fn rejects_comment_inside_the_grid() {
+    let rows: Vec<&str> = SAMPLE.trim().lines().collect();
+    let spliced = format!(
+        "{}\n# note\n{}",
+        rows[..8].join("\n"),
+        rows[8..].join("\n")
+    );
+    assert_eq!(
+        WaferMap::parse(&spliced).unwrap_err(),
+        ParseError::WrongRowCount(BOARD_SIZE + 1)
+    );
+}
+
+/// Marks that match no legal placement are overwritten by the next report.
+/// That is acceptable, but callers must be able to warn first.
+#[test]
+fn flags_marks_that_match_no_legal_placement() {
+    let clean = WaferMap::parse(SAMPLE).unwrap();
+    assert!(!clean.has_marks());
+    assert!(!clean.has_inconsistent_marks());
+
+    let stray = WaferMap::parse(&SAMPLE.replacen('.', "Z", 1)).unwrap();
+    assert!(stray.has_marks());
+    assert!(
+        stray.has_inconsistent_marks(),
+        "a lone Z matches no placement and must be flagged"
+    );
+
+    // Our own output is marked, but consistently so: no warning.
+    let map = WaferMap::parse(SAMPLE).unwrap();
+    let report = render_report(&map, &find_best_region(&map));
+    let remarked = WaferMap::parse(&report).unwrap();
+    assert!(remarked.has_marks());
+    assert!(!remarked.has_inconsistent_marks());
+}
+
+/// CR-only (classic Mac) endings collapse to a single line. We cannot know
+/// the user's intent, but we must not silently misread the file.
+#[test]
+fn rejects_cr_only_line_endings() {
+    let cr = SAMPLE.trim().replace('\n', "\r");
+    assert!(matches!(
+        WaferMap::parse(&cr).unwrap_err(),
+        ParseError::WrongRowCount(_) | ParseError::WrongRowLength { .. }
+    ));
+}

@@ -1,0 +1,2 @@
+# invalid fixture: empty
+# expect: WrongRowCount(0) -- nothing to parse.

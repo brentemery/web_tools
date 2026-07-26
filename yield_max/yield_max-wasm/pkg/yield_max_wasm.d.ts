@@ -10,6 +10,11 @@ export class AnalysisResult {
      * The full self-describing report: `#` header plus the marked grid.
      */
     readonly report: string;
+    /**
+     * A non-fatal advisory, or the empty string. Currently set when the
+     * input carried region marks that this run will overwrite.
+     */
+    readonly warning: string;
 }
 
 /**
@@ -59,6 +64,7 @@ export interface InitOutput {
     readonly __wbg_placement_free: (a: number, b: number) => void;
     readonly analysisresult_best: (a: number) => number;
     readonly analysisresult_report: (a: number) => [number, number];
+    readonly analysisresult_warning: (a: number) => [number, number];
     readonly analyze_wafer: (a: number, b: number) => [number, number, number];
     readonly legend: () => [number, number];
     readonly mask_rows: () => [number, number];
