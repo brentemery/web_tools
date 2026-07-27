@@ -22,6 +22,7 @@ these can catch a genuine regression.
 | `corner_overhang` | 0,6 | 50 | 37 | 6 | Region pinned to a corner where overhang, not good count, is the story. |
 | `edge_ring_defects` | 3,3 | 93 | 0 | 0 | Classic edge-exclusion ring; a perfect region exists inside it. |
 | `messy_whitespace` | 0,5 | 63 | 29 | 1 | CRLF, trailing spaces, and surrounding blank lines are all tolerated. |
+| `header_text` | 0,5 | 63 | 29 | 1 | Free-text metadata lines above the grid, with no `#` marker, are tolerated. |
 | `marked_roundtrip` | 0,5 | 63 | 29 | 1 | The tool's own output; re-running must reproduce it byte for byte. |
 | `utf8_bom` | 0,5 | 63 | 29 | 1 | A BOM at byte 0 is stripped, not reported as a bogus 18-character row. |
 

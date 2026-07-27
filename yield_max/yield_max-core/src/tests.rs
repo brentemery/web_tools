@@ -4,6 +4,15 @@ use super::*;
 /// re-typed, so the two cannot drift apart.
 const SAMPLE: &str = include_str!("../../test_wafer.txt");
 
+/// Just the 17 grid rows of [`SAMPLE`], without whatever header text the
+/// fixture file happens to carry above them. Tests that mutate a specific
+/// character by position use this instead of `SAMPLE` directly, so they
+/// don't depend on what (if anything) precedes the grid in the fixture file.
+fn grid_only() -> String {
+    let lines: Vec<&str> = SAMPLE.lines().collect();
+    lines[lines.len() - BOARD_SIZE..].join("\n")
+}
+
 fn uniform(ch: char) -> String {
     let row: String = std::iter::repeat_n(ch, BOARD_SIZE).collect();
     (0..BOARD_SIZE)
@@ -22,18 +31,27 @@ fn parses_sample_wafer() {
 
 #[test]
 fn rejects_wrong_row_count() {
-    let err = WaferMap::parse("111\n111\n").unwrap_err();
+    // Full-width rows, so they aren't swallowed by the header-skipping
+    // heuristic (see `skips_header_text_above_the_grid`), which only treats
+    // narrower leading lines as header text.
+    let row = ".....1111111.....";
+    let err = WaferMap::parse(&format!("{row}\n{row}\n")).unwrap_err();
     assert_eq!(err, ParseError::WrongRowCount(2));
 }
 
 #[test]
 fn rejects_wrong_row_length() {
-    let bad = SAMPLE.replacen(".....1111111.....", ".....1111111....", 1);
+    // Row 0 is deliberately left alone: shortening the *first* row is
+    // indistinguishable from a free-text header line, so it is dropped as
+    // header text (see `skips_header_text_above_the_grid`) rather than
+    // reported as a malformed row. A row further in still gets a precise
+    // error, which is what this test pins down.
+    let bad = SAMPLE.replacen("XXXXX1X111111XX1X", "XXXXX1X111111XX1", 1);
     let err = WaferMap::parse(&bad).unwrap_err();
     assert_eq!(
         err,
         ParseError::WrongRowLength {
-            row: 0,
+            row: 5,
             len: BOARD_SIZE - 1
         }
     );
@@ -41,7 +59,7 @@ fn rejects_wrong_row_length() {
 
 #[test]
 fn rejects_invalid_char() {
-    let bad = SAMPLE.replacen('.', "?", 1);
+    let bad = grid_only().replacen('.', "?", 1);
     let err = WaferMap::parse(&bad).unwrap_err();
     assert_eq!(
         err,
@@ -69,7 +87,7 @@ fn error_messages_are_one_based() {
 /// answer. It must be an error.
 #[test]
 fn rejects_blank_line_inside_grid() {
-    let bad = SAMPLE.replacen('\n', "\n\n", 1);
+    let bad = grid_only().replacen('\n', "\n\n", 1);
     assert_eq!(
         WaferMap::parse(&bad).unwrap_err(),
         ParseError::WrongRowCount(BOARD_SIZE + 1)
@@ -95,6 +113,31 @@ fn tolerates_trailing_spaces() {
 fn skips_comment_lines() {
     let commented = format!("# a header\n{}\n# a footer\n", SAMPLE.trim());
     assert_eq!(WaferMap::parse(&commented), WaferMap::parse(SAMPLE));
+}
+
+/// Some source systems prepend free-text metadata above the grid with no `#`
+/// marker at all. Any leading line that isn't 17 characters wide is dropped
+/// as header text; multiple lines, blank lines, and `#` comments in the mix
+/// are all tolerated together.
+#[test]
+fn skips_header_text_above_the_grid() {
+    let headered = format!(
+        "Wafer Map Report\nLot: ACME-042   Slot: 07\nOperator: J. Diaz   Date: 2026-07-20\n\n{}",
+        SAMPLE.trim()
+    );
+    assert_eq!(WaferMap::parse(&headered), WaferMap::parse(SAMPLE));
+}
+
+/// A header line that happens to be exactly 17 characters wide is left for
+/// normal validation rather than assumed to be header text, since we cannot
+/// tell it apart from a genuinely malformed first grid row.
+#[test]
+fn seventeen_character_header_line_is_treated_as_a_grid_row() {
+    let headered = SAMPLE.replacen(".....1111111.....", "Lot: ACME-042 ###", 1);
+    assert!(matches!(
+        WaferMap::parse(&headered).unwrap_err(),
+        ParseError::InvalidChar { row: 0, .. }
+    ));
 }
 
 // Expected values computed independently (Python re-implementation of the
@@ -412,7 +455,7 @@ fn rejects_invisible_characters_with_a_legible_message() {
         ('\u{200b}', "zero-width space"),
         (' ', "space"),
     ] {
-        let bad = SAMPLE.replacen('.', &ch.to_string(), 1);
+        let bad = grid_only().replacen('.', &ch.to_string(), 1);
         let msg = WaferMap::parse(&bad).unwrap_err().to_string();
         assert!(
             msg.contains(expected) && msg.contains("U+"),
@@ -424,7 +467,7 @@ fn rejects_invisible_characters_with_a_legible_message() {
 /// A homoglyph: fullwidth '１' looks like a good die but is not one.
 #[test]
 fn rejects_non_ascii_lookalikes() {
-    let bad = SAMPLE.replacen('1', "\u{ff11}", 1);
+    let bad = grid_only().replacen('1', "\u{ff11}", 1);
     let msg = WaferMap::parse(&bad).unwrap_err().to_string();
     assert!(msg.contains("U+FF11"), "got: {msg}");
 }
@@ -461,7 +504,7 @@ fn flags_marks_that_match_no_legal_placement() {
     assert!(!clean.has_marks());
     assert!(!clean.has_inconsistent_marks());
 
-    let stray = WaferMap::parse(&SAMPLE.replacen('.', "Z", 1)).unwrap();
+    let stray = WaferMap::parse(&grid_only().replacen('.', "Z", 1)).unwrap();
     assert!(stray.has_marks());
     assert!(
         stray.has_inconsistent_marks(),

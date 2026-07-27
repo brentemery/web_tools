@@ -17,6 +17,10 @@
 //! renderer emits a three-line `#` header describing the result so that the
 //! output file is self-describing. Because the alphabet is lossless, output
 //! of this tool is valid input to it (see [`WaferMap::marked_region`]).
+//!
+//! Free-text header lines above the grid (lot number, operator, timestamp --
+//! anything not marked with `#`) are also tolerated: any leading line that
+//! isn't 17 characters wide is dropped before the grid is parsed.
 
 pub const BOARD_SIZE: usize = 17;
 pub const MASK_SIZE: usize = 11;
@@ -158,6 +162,13 @@ impl std::fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
+/// Whether `line` has the width of a grid row (trailing whitespace ignored,
+/// matching the tolerance the row parser itself applies). Used only to tell
+/// leading header text apart from the grid, not to validate its contents.
+fn is_grid_row_width(line: &str) -> bool {
+    line.trim_end().chars().count() == BOARD_SIZE
+}
+
 /// Describes a character for an error message. Whitespace and non-printing
 /// characters are named rather than printed, so a message about a tab, a
 /// non-breaking space, or a zero-width character is not itself invisible.
@@ -195,10 +206,16 @@ impl WaferMap {
         // interleaved with the grid is as suspect as a blank line there, since
         // it suggests the file was assembled wrongly.
         let mut rows: Vec<&str> = input.lines().map(|l| l.trim_end_matches('\r')).collect();
-        while rows
-            .first()
-            .is_some_and(|l| l.trim().is_empty() || l.trim_start().starts_with('#'))
-        {
+        // Some source systems prepend free-text metadata (lot number,
+        // operator, timestamp) above the grid with no `#` marker. Treat any
+        // leading line that isn't 17 characters wide as header text and drop
+        // it; a line that does happen to be 17 characters wide is left for
+        // the normal per-character validation below, so a genuinely malformed
+        // first grid row (wrong character, invisible character, ...) still
+        // fails loudly instead of being swallowed as "header".
+        while rows.first().is_some_and(|l| {
+            l.trim().is_empty() || l.trim_start().starts_with('#') || !is_grid_row_width(l)
+        }) {
             rows.remove(0);
         }
         while rows

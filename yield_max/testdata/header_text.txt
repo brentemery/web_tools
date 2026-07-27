@@ -1,0 +1,25 @@
+# fixture: header_text
+# Same grid as test_wafer.txt, but preceded by free-text metadata lines
+# carrying no '#' marker at all -- the kind of header some source systems
+# prepend (lot number, slot, operator, timestamp).
+# expect: row=0 col=5 good=63 defect=29 overhang=1
+Wafer Map Export
+Lot: ACME-042   Slot: 07
+Operator: J. Diaz   Date: 2026-07-20
+.....1111111.....
+...XX111111XXX...
+..X11X111X1X111..
+.XXX1111111X111X.
+.XXXX1111XX11X1X.
+XXXXX1X111111XX1X
+XXXXXX1111111X1XX
+X1X111X1X1X11X1XX
+XXX1XXXXXXX111XXX
+1XX1XXX1X11X11XX1
+XXXXXXXXX1111X11X
+.11XXXXX11111X11.
+.X1XXX1X11111XXX.
+..1XX1XXXXX1111..
+...XXXXXXXXXXX...
+....X11111X1X....
+.......XXXX......

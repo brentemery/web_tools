@@ -116,6 +116,13 @@ Two cases get special handling because the naive behavior misleads:
   a tab, a non-breaking space, or a fullwidth `１` would otherwise produce a
   message that looks blank or identical to a legal one.
 
+**Free-text header lines** above the grid -- lot number, slot, operator,
+timestamp, anything with no `#` marker -- are tolerated too: any leading line
+that isn't exactly 17 characters wide is dropped before the grid is parsed.
+A leading line that does happen to be 17 characters wide is left alone and
+runs through normal validation instead, since at that width it can't be told
+apart from a genuinely malformed first grid row.
+
 Marks in the input that match no legal mask placement are overwritten by the
 run's result, but the tool **warns first** rather than discarding a hand edit
 silently.
