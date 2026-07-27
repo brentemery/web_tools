@@ -145,20 +145,40 @@ fn seventeen_character_header_line_is_treated_as_a_grid_row() {
 #[test]
 fn finds_known_best_region_for_sample_wafer() {
     let map = WaferMap::parse(SAMPLE).unwrap();
-    let best = find_best_region(&map);
+    let best = find_best_region(&map).unwrap();
     assert_eq!(
         best,
         BestRegion {
             row: 0,
-            col: 5,
+            col: 4,
             stats: RegionStats {
-                good: 63,
-                defect: 29,
-                overhang: 1,
+                good: 62,
+                defect: 31,
+                overhang: 0,
             }
         }
     );
     assert_eq!(best.stats.sites(), mask_site_count());
+}
+
+/// The core invariant this file format enforces: a 200mm region that hangs
+/// off the wafer edge is not legal, even when it covers more good die than
+/// the best legal alternative. (0,5) on the sample wafer covers 63 good die
+/// but carries 1 overhang site; it must lose to (0,4), which covers only 62
+/// good die but zero overhang.
+#[test]
+fn overhang_placement_loses_to_a_lower_good_overhang_free_one() {
+    let map = WaferMap::parse(SAMPLE).unwrap();
+    let with_overhang = map.evaluate(0, 5);
+    assert_eq!(
+        (with_overhang.stats.good, with_overhang.stats.overhang),
+        (63, 1)
+    );
+
+    let best = find_best_region(&map).unwrap();
+    assert_eq!((best.row, best.col), (0, 4));
+    assert!(best.stats.good < with_overhang.stats.good);
+    assert_eq!(best.stats.overhang, 0);
 }
 
 /// The docstring promises row-major first-wins on ties; an all-good wafer
@@ -166,28 +186,32 @@ fn finds_known_best_region_for_sample_wafer() {
 #[test]
 fn breaks_ties_toward_first_in_row_major_order() {
     let map = WaferMap::parse(&uniform('1')).unwrap();
-    let best = find_best_region(&map);
+    let best = find_best_region(&map).unwrap();
     assert_eq!(best.stats.good, mask_site_count());
     assert_eq!((best.row, best.col), (0, 0));
 }
 
 #[test]
 fn handles_all_good_and_all_absent_wafers() {
-    let all_good = find_best_region(&WaferMap::parse(&uniform('1')).unwrap());
+    let all_good = find_best_region(&WaferMap::parse(&uniform('1')).unwrap()).unwrap();
     assert_eq!(all_good.stats.good, mask_site_count());
     assert_eq!(all_good.stats.yield_fraction(), 1.0);
 
-    let all_absent = find_best_region(&WaferMap::parse(&uniform('.')).unwrap());
-    assert_eq!(all_absent.stats.good, 0);
-    assert_eq!(all_absent.stats.overhang, mask_site_count());
-    // No present die at all must not divide by zero.
-    assert_eq!(all_absent.stats.yield_fraction(), 0.0);
+    // An all-absent wafer has no placement anywhere that avoids overhang, so
+    // there is no legal 200mm region at all.
+    let all_absent = WaferMap::parse(&uniform('.')).unwrap();
+    assert_eq!(find_best_region(&all_absent), None);
+    // The zero-overhang guard on yield_fraction still matters for a raw,
+    // unconstrained placement (e.g. one recovered from marked_region()).
+    let region = all_absent.evaluate(0, 0);
+    assert_eq!(region.stats.overhang, mask_site_count());
+    assert_eq!(region.stats.yield_fraction(), 0.0);
 }
 
 #[test]
 fn mark_region_rewrites_exactly_the_mask_footprint() {
     let map = WaferMap::parse(SAMPLE).unwrap();
-    let best = find_best_region(&map);
+    let best = find_best_region(&map).unwrap();
     let marked = mark_region(&map, &best);
     let marked_rows: Vec<Vec<char>> = marked.lines().map(|l| l.chars().collect()).collect();
     let mask = mask();
@@ -206,12 +230,20 @@ fn mark_region_rewrites_exactly_the_mask_footprint() {
     }
 }
 
-/// Every distinguishable state should appear in the sample's output, which is
-/// the whole point of the version-2 alphabet.
+/// Every distinguishable state `mark_region` can produce should appear in
+/// its output, which is the whole point of the version-2 alphabet. The
+/// region here is a raw placement chosen directly via `evaluate`, not
+/// `find_best_region` (which now excludes overhang placements as illegal),
+/// specifically because it carries overhang and so exercises the `-` glyph.
 #[test]
 fn marked_output_uses_all_six_glyphs() {
     let map = WaferMap::parse(SAMPLE).unwrap();
-    let marked = mark_region(&map, &find_best_region(&map));
+    let region = map.evaluate(0, 5);
+    assert_eq!(
+        region.stats.overhang, 1,
+        "fixture assumption: (0,5) has overhang"
+    );
+    let marked = mark_region(&map, &region);
     for ch in ['1', 'X', '.', 'Z', '*', '-'] {
         assert!(marked.contains(ch), "missing glyph {ch:?} in:\n{marked}");
     }
@@ -220,12 +252,12 @@ fn marked_output_uses_all_six_glyphs() {
 #[test]
 fn report_header_carries_the_headline_numbers() {
     let map = WaferMap::parse(SAMPLE).unwrap();
-    let report = render_report(&map, &find_best_region(&map));
+    let report = render_report(&map, &find_best_region(&map).unwrap());
     let header: Vec<&str> = report.lines().take(3).collect();
-    assert_eq!(header[0], "# yield_max 2  region=row0,col5");
+    assert_eq!(header[0], "# yield_max 2  region=row0,col4");
     assert_eq!(
         header[1],
-        "# good=63 defect=29 overhang=1 sites=93 yield=68.5%"
+        "# good=62 defect=31 overhang=0 sites=93 yield=66.7%"
     );
     assert!(header[2].contains("Z=good"));
 }
@@ -235,7 +267,7 @@ fn report_header_carries_the_headline_numbers() {
 #[test]
 fn output_round_trips_through_the_parser() {
     let map = WaferMap::parse(SAMPLE).unwrap();
-    let best = find_best_region(&map);
+    let best = find_best_region(&map).unwrap();
     let report = render_report(&map, &best);
 
     let reparsed = WaferMap::parse(&report).expect("our own output must parse");
@@ -245,10 +277,10 @@ fn output_round_trips_through_the_parser() {
         }
     }
     assert_eq!(reparsed.marked_region(), Some(best));
-    assert_eq!(find_best_region(&reparsed), best);
+    assert_eq!(find_best_region(&reparsed), Some(best));
     // Idempotent: re-running on the marked file reproduces it exactly.
     assert_eq!(
-        render_report(&reparsed, &find_best_region(&reparsed)),
+        render_report(&reparsed, &find_best_region(&reparsed).unwrap()),
         report
     );
 }
@@ -281,18 +313,30 @@ fn mask_matches_published_shape_and_site_count() {
 // current behavior.
 // ---------------------------------------------------------------------------
 
-/// Reads `key=value` pairs off the fixture's `# expect:` line.
-fn expectations(text: &str) -> Option<BestRegion> {
+/// What a fixture's `# expect:` line says `find_best_region` should return:
+/// either a specific placement, or `None` because no legal (overhang-free)
+/// placement exists anywhere on the wafer.
+enum Expectation {
+    Region(BestRegion),
+    NoRegion,
+}
+
+/// Reads the fixture's `# expect:` line, either `none` or `key=value` pairs.
+fn expectations(text: &str) -> Option<Expectation> {
     let line = text
         .lines()
         .find(|l| l.starts_with("# expect:"))?
-        .trim_start_matches("# expect:");
+        .trim_start_matches("# expect:")
+        .trim();
+    if line == "none" {
+        return Some(Expectation::NoRegion);
+    }
     let mut fields = std::collections::HashMap::new();
     for pair in line.split_whitespace() {
         let (k, v) = pair.split_once('=')?;
         fields.insert(k, v.parse::<usize>().ok()?);
     }
-    Some(BestRegion {
+    Some(Expectation::Region(BestRegion {
         row: *fields.get("row")?,
         col: *fields.get("col")?,
         stats: RegionStats {
@@ -300,7 +344,7 @@ fn expectations(text: &str) -> Option<BestRegion> {
             defect: *fields.get("defect")?,
             overhang: *fields.get("overhang")?,
         },
-    })
+    }))
 }
 
 /// Every `.txt` directly inside testdata/ (excluding the invalid/ subdirectory).
@@ -336,14 +380,34 @@ fn every_valid_fixture_parses_and_matches_its_expected_result() {
     for (name, text) in &fixtures {
         let map = WaferMap::parse(text).unwrap_or_else(|e| panic!("{name}: {e}"));
         let best = find_best_region(&map);
-        assert_eq!(
-            best.stats.sites(),
-            mask_site_count(),
-            "{name}: a placement always covers the same number of sites"
-        );
-        if let Some(expected) = expectations(text) {
-            assert_eq!(best, expected, "{name}: result disagrees with its header");
-            checked += 1;
+        if let Some(region) = &best {
+            assert_eq!(
+                region.stats.sites(),
+                mask_site_count(),
+                "{name}: a placement always covers the same number of sites"
+            );
+            assert_eq!(
+                region.stats.overhang, 0,
+                "{name}: a legal region can never carry overhang"
+            );
+        }
+        match expectations(text) {
+            Some(Expectation::Region(expected)) => {
+                assert_eq!(
+                    best,
+                    Some(expected),
+                    "{name}: result disagrees with its header"
+                );
+                checked += 1;
+            }
+            Some(Expectation::NoRegion) => {
+                assert_eq!(
+                    best, None,
+                    "{name}: expected no legal region, but found one"
+                );
+                checked += 1;
+            }
+            None => {}
         }
     }
     assert!(checked >= 9, "only {checked} fixtures carried expectations");
@@ -361,10 +425,10 @@ fn marked_fixture_round_trips_and_reveals_its_region() {
     let map = WaferMap::parse(&text).expect("marked output must parse");
 
     let recovered = map.marked_region().expect("region should be recoverable");
-    assert_eq!((recovered.row, recovered.col), (0, 5));
-    assert_eq!(recovered.stats.good, 63);
+    assert_eq!((recovered.row, recovered.col), (0, 4));
+    assert_eq!(recovered.stats.good, 62);
 
-    let best = find_best_region(&map);
+    let best = find_best_region(&map).unwrap();
     assert_eq!(best, recovered, "re-solving must find the same region");
     // Byte-identical below the fixture's leading note lines.
     let report = render_report(&map, &best);
@@ -513,7 +577,7 @@ fn flags_marks_that_match_no_legal_placement() {
 
     // Our own output is marked, but consistently so: no warning.
     let map = WaferMap::parse(SAMPLE).unwrap();
-    let report = render_report(&map, &find_best_region(&map));
+    let report = render_report(&map, &find_best_region(&map).unwrap());
     let remarked = WaferMap::parse(&report).unwrap();
     assert!(remarked.has_marks());
     assert!(!remarked.has_inconsistent_marks());

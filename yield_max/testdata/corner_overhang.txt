@@ -1,8 +1,11 @@
 # fixture: corner_overhang
-# Good die banked into the north-east corner, pinning the region at (0,6)
-# where 6 of its 93 sites hang off the wafer. This is the fixture where the
-# overhang metric is the interesting number, not the good-die count.
-# expect: row=0 col=6 good=50 defect=37 overhang=6
+# Good die banked into the north-east corner. The naive best placement, (0,6)
+# with 50 good die, requires 6 sites of overhang and is illegal (the 200mm
+# region must land entirely within the wafer), so it must be rejected in
+# favor of (0,4), which has fewer good die (43) but zero overhang. This is
+# the fixture that pins down that a higher raw good-die count loses to a
+# lower one when the higher count can only be reached with overhang.
+# expect: row=0 col=4 good=43 defect=50 overhang=0
 .....XXX1111.....
 ...XXXXX111111...
 ..XXXXXX1111111..

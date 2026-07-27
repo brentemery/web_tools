@@ -14,10 +14,10 @@ const b = r.best;
 
 const checks = [
   ['row', b.row, 0],
-  ['col', b.col, 5],
-  ['good', b.good, 63],
-  ['defect', b.defect, 29],
-  ['overhang', b.overhang, 1],
+  ['col', b.col, 4],
+  ['good', b.good, 62],
+  ['defect', b.defect, 31],
+  ['overhang', b.overhang, 0],
   ['sites', b.sites, 93],
   ['mask_sites()', mask_sites(), 93],
   ['mask_rows() length', mask_rows().length, 11],
@@ -39,6 +39,13 @@ r2.best.free(); r2.free();
 // Malformed input must reject, not silently produce something.
 try { analyze_wafer('garbage'); console.error('  FAIL: malformed input was accepted'); failed++; }
 catch { /* expected */ }
+
+// A wafer with no die anywhere has no legal overhang-free 200mm placement.
+try {
+  analyze_wafer(Array(17).fill('.'.repeat(17)).join('\n'));
+  console.error('  FAIL: an all-absent wafer was accepted');
+  failed++;
+} catch { /* expected */ }
 
 if (failed) { console.error(`${failed} check(s) failed`); process.exit(1); }
 console.log('  committed wasm loads and computes the expected result');

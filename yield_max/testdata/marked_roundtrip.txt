@@ -1,21 +1,21 @@
 # fixture: marked_roundtrip
 # The tool's own output for test_wafer.txt. Re-running on this file must
 # reproduce it byte for byte below the note lines, and marked_region() must
-# recover row=0 col=5.
-# yield_max 2  region=row0,col5
-# good=63 defect=29 overhang=1 sites=93 yield=68.5%
+# recover row=0 col=4.
+# yield_max 2  region=row0,col4
+# good=62 defect=31 overhang=0 sites=93 yield=66.7%
 # in-region: Z=good *=defect -=overhang   outside: 1=good X=defect .=absent
-.....111ZZZZ-....
-...XX11ZZZZ***...
-..X11XZZZ*Z*ZZZ..
-.XXX1ZZZZZZ*ZZZ*.
-.XXXXZZZZ**ZZ*Z*.
-XXXXXZ*ZZZZZZ**ZX
-XXXXX*ZZZZZZZ*Z*X
-X1X111*Z*Z*ZZ*ZXX
-XXX1XX*****ZZZ*XX
-1XX1XXXZ*ZZ*ZZXX1
-XXXXXXXXXZZZ1X11X
+.....11ZZZZZ.....
+...XX1ZZZZZ**X...
+..X11*ZZZ*Z*ZZ1..
+.XXXZZZZZZZ*ZZZX.
+.XXX*ZZZZ**ZZ*ZX.
+XXXX*Z*ZZZZZZ**1X
+XXXX**ZZZZZZZ*ZXX
+X1X11Z*Z*Z*ZZ*1XX
+XXX1X******ZZZXXX
+1XX1XX*Z*ZZ*Z1XX1
+XXXXXXXX*ZZ11X11X
 .11XXXXX11111X11.
 .X1XXX1X11111XXX.
 ..1XX1XXXXX1111..

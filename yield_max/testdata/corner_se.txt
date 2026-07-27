@@ -1,8 +1,9 @@
 # fixture: corner_se
 # Good die banked into the south-east, exercising the maximum offset (6,6):
 # the far end of the placement range, where an off-by-one would show up.
-# Also pays 9 sites of overhang against the wafer's curved bottom edge.
-# expect: row=6 col=6 good=75 defect=9 overhang=9
+# The footprint at (6,6) lands entirely on present die (no overhang), so the
+# corner wins outright: it beats its nearest neighbor by 7 good die.
+# expect: row=6 col=6 good=84 defect=9 overhang=0
 .....XXXXXXX.....
 ...XXXXXXXXXXX...
 ..XXXXXXXXXXXXX..
@@ -14,9 +15,9 @@ XXXXXXX1111111111
 XXXXXXX1111111111
 XXXXXXX1111111111
 XXXXXXX1111111111
-.XXXXXX111111111.
-.XXXXXX111111111.
-..XXXXX11111111..
-...XXXX1111111...
-....XXX111111....
-.......1111......
+.XXXXXX1111111111
+.XXXXXX1111111111
+..XXXXX111111111.
+...XXXX111111111.
+....XXX11111111..
+.......111111....

@@ -361,19 +361,29 @@ pub struct BestRegion {
 }
 
 /// Returns the placement covering the most good ('1') die, scanning every
-/// position where the 11x11 mask fits fully inside the 17x17 board. Ties are
-/// broken in favor of the first placement found (row-major order).
-pub fn find_best_region(map: &WaferMap) -> BestRegion {
+/// position where the 11x11 mask fits fully inside the 17x17 board *and*
+/// entirely on present die -- a placement that would hang any mask site off
+/// the wafer's physical edge onto an absent ('.') site is not a legal 200mm
+/// region and is not considered. Ties are broken in favor of the first
+/// placement found (row-major order). Returns `None` if the wafer has no
+/// placement at all that avoids overhang (for example, a wafer whose present
+/// die area is smaller than the mask everywhere it could sit).
+pub fn find_best_region(map: &WaferMap) -> Option<BestRegion> {
     let max_offset = BOARD_SIZE - MASK_SIZE;
-    // The board is strictly larger than the mask, so (0, 0) is always a legal
-    // placement and this seed is always replaced-or-matched by a real score.
-    let mut best = map.evaluate(0, 0);
+    let mut best: Option<BestRegion> = None;
     for row in 0..=max_offset {
         for col in 0..=max_offset {
             let candidate = map.evaluate(row, col);
+            if candidate.stats.overhang > 0 {
+                continue;
+            }
             // Strict `>` keeps the first placement in row-major order on ties.
-            if candidate.stats.good > best.stats.good {
-                best = candidate;
+            let better = match &best {
+                None => true,
+                Some(b) => candidate.stats.good > b.stats.good,
+            };
+            if better {
+                best = Some(candidate);
             }
         }
     }

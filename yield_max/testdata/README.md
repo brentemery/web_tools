@@ -14,20 +14,26 @@ these can catch a genuine regression.
 |---|---|---|---|---|---|
 | `all_good` | 0,0 | 93 | 0 | 0 | All 49 placements tie; the row-major first-wins tie-break must pick (0,0). |
 | `all_defect` | 0,0 | 0 | 93 | 0 | Tie-break again, at zero good die, with a non-zero yield denominator. |
-| `all_absent` | 0,0 | 0 | 0 | 93 | Divide-by-zero guard: no present die at all. |
+| `all_absent` | — | — | — | — | No die sites anywhere, so every placement is entirely overhang: `find_best_region` must return `None`. |
 | `single_good_die` | 6,2 | 1 | 92 | 0 | One good die near the bottom edge forces the winner away from (0,0). |
 | `center_cluster` | 3,3 | 69 | 24 | 0 | Region settles centrally rather than drifting to an edge. |
-| `corner_nw` | 0,0 | 53 | 34 | 6 | Minimum offset (0,0) reached for a real reason, not the tie-break. |
-| `corner_se` | 6,6 | 75 | 9 | 9 | **Maximum offset (6,6)** — the far end of the placement range. |
-| `corner_overhang` | 0,6 | 50 | 37 | 6 | Region pinned to a corner where overhang, not good count, is the story. |
+| `corner_nw` | 0,0 | 59 | 34 | 0 | Minimum offset (0,0) reached for a real reason, not the tie-break. |
+| `corner_se` | 6,6 | 84 | 9 | 0 | **Maximum offset (6,6)** — the far end of the placement range. |
+| `corner_overhang` | 0,4 | 43 | 50 | 0 | A higher-good placement (50 good at (0,6)) requires overhang and is correctly rejected in favor of a lower-good, overhang-free one. |
 | `edge_ring_defects` | 3,3 | 93 | 0 | 0 | Classic edge-exclusion ring; a perfect region exists inside it. |
-| `messy_whitespace` | 0,5 | 63 | 29 | 1 | CRLF, trailing spaces, and surrounding blank lines are all tolerated. |
-| `header_text` | 0,5 | 63 | 29 | 1 | Free-text metadata lines above the grid, with no `#` marker, are tolerated. |
-| `marked_roundtrip` | 0,5 | 63 | 29 | 1 | The tool's own output; re-running must reproduce it byte for byte. |
-| `utf8_bom` | 0,5 | 63 | 29 | 1 | A BOM at byte 0 is stripped, not reported as a bogus 18-character row. |
+| `messy_whitespace` | 0,4 | 62 | 31 | 0 | CRLF, trailing spaces, and surrounding blank lines are all tolerated. |
+| `header_text` | 0,4 | 62 | 31 | 0 | Free-text metadata lines above the grid, with no `#` marker, are tolerated. |
+| `marked_roundtrip` | 0,4 | 62 | 31 | 0 | The tool's own output; re-running must reproduce it byte for byte. |
+| `utf8_bom` | 0,4 | 62 | 31 | 0 | A BOM at byte 0 is stripped, not reported as a bogus 18-character row. |
 
-Between them `corner_nw`, `corner_se`, and `corner_overhang` cover both ends of
-the row and column placement range, which is where off-by-one errors surface.
+Every fixture above has zero overhang: a placement is not a legal 200mm
+region unless it lands entirely on present die (see `corner_overhang`, which
+exists specifically to pin down that a higher-good overhang placement loses
+to a lower-good overhang-free one), and `all_absent` pins down the case where
+no legal placement exists anywhere on the wafer.
+
+Between them `corner_nw` and `corner_se` cover both ends of the row and
+column placement range, which is where off-by-one errors surface.
 
 ## invalid/
 
@@ -57,5 +63,5 @@ inventing a region.
 
 `all_good`, `corner_se`, and the rest are generated from predicates rather than
 hand-typed. The tests are mutation-checked: flipping the tie-break to
-last-wins, counting overhang as good, or skipping the maximum offset each cause
-failures here.
+last-wins, letting an overhang placement win, or skipping the maximum offset
+each cause failures here.

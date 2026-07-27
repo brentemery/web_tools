@@ -3,7 +3,7 @@
 # It is stripped, so this parses identically to test_wafer.txt. Left in
 # because an unstripped BOM would report 'row 1 has length 18' about a row
 # the user can see is 17 characters -- invisible cause, misleading message.
-# expect: row=0 col=5 good=63 defect=29 overhang=1
+# expect: row=0 col=4 good=62 defect=31 overhang=0
 .....1111111.....
 ...XX111111XXX...
 ..X11X111X1X111..

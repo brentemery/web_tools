@@ -1,12 +1,15 @@
 # fixture: corner_nw
-# Good die banked into the north-west. Drives the region to the (0,0) corner
-# for a reason other than the tie-break.
-# expect: row=0 col=0 good=53 defect=34 overhang=6
-.....1111111.....
-...11111111XXX...
-..11111111XXXXX..
-.11111111XXXXXXX.
-.1111111XXXXXXXX.
+# Good die banked into the north-west, with the region's whole 93-site
+# footprint at (0,0) landing on present die (no overhang) so the corner wins
+# outright rather than being disqualified. Drives the region to the (0,0)
+# corner for a reason other than the tie-break: (0,0) beats its nearest
+# neighbor by 8 good die.
+# expect: row=0 col=0 good=59 defect=34 overhang=0
+...111111111.....
+..111111111XXX...
+.111111111XXXXX..
+111111111XXXXXXX.
+11111111XXXXXXXX.
 1111111XXXXXXXXXX
 111111XXXXXXXXXXX
 11111XXXXXXXXXXXX

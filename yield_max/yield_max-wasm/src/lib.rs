@@ -105,7 +105,12 @@ pub fn analyze_wafer(input: &str) -> Result<AnalysisResult, JsValue> {
          they have been replaced by this run's result."
             .to_string()
     });
-    let best = find_best_region(&map);
+    let best = find_best_region(&map).ok_or_else(|| {
+        JsValue::from_str(
+            "no 200mm region fits entirely within this wafer without overhang \
+             (its present-die area is smaller than the 200mm mask everywhere it could sit)",
+        )
+    })?;
 
     Ok(AnalysisResult {
         best: Placement::from(&best),
