@@ -173,8 +173,9 @@ fn run() -> Result<(), String> {
 
     let best = find_best_region(&map).ok_or_else(|| {
         format!(
-            "no 200mm region fits entirely within {}'s wafer without overhang \
-             (its present-die area is smaller than the 200mm mask everywhere it could sit)",
+            "no 200mm region fits entirely within {}'s wafer with at least one die of \
+             clearance from the wafer's edge on every side \
+             (its present-die area is too small everywhere it could sit)",
             args.input.display()
         )
     })?;
@@ -293,7 +294,7 @@ mod tests {
         let map = WaferMap::parse(include_str!("../../test_wafer.txt")).unwrap();
         let json = json_report(&find_best_region(&map).unwrap(), Some(Path::new("out.txt")));
         assert!(json.contains(r#""version":2"#));
-        assert!(json.contains(r#""good":62"#));
+        assert!(json.contains(r#""good":57"#));
         assert!(json.contains(r#""overhang":0"#));
         assert!(json.contains(r#""mask_sites":93"#));
         // Exactly one placement is reported: the winner.

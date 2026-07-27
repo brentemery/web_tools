@@ -1,9 +1,9 @@
 # fixture: corner_se
-# Good die banked into the south-east, exercising the maximum offset (6,6):
-# the far end of the placement range, where an off-by-one would show up.
-# The footprint at (6,6) lands entirely on present die (no overhang), so the
-# corner wins outright: it beats its nearest neighbor by 7 good die.
-# expect: row=6 col=6 good=84 defect=9 overhang=0
+# Good die banked into the south-east. (6,6) itself is never legal -- it
+# always sits on the wafer's true edge -- so the region settles at (5,5),
+# the far corner of the legal range, where an off-by-one would show up.
+# (5,5) beats its nearest legal neighbors, (4,5) and (5,4), by 8 good die.
+# expect: row=5 col=5 good=70 defect=23 overhang=0
 .....XXXXXXX.....
 ...XXXXXXXXXXX...
 ..XXXXXXXXXXXXX..

@@ -1,5 +1,5 @@
 # fixture: messy_whitespace
-# expect: row=0 col=4 good=62 defect=31 overhang=0 -- identical to
+# expect: row=2 col=4 good=57 defect=36 overhang=0 -- identical to
 # test_wafer.txt despite CRLF endings, trailing spaces on every row, and
 # blank lines around the grid. All three are tolerated.
 

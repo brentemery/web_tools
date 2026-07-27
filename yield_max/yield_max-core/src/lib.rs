@@ -321,6 +321,42 @@ impl WaferMap {
         }
         BestRegion { row, col, stats }
     }
+
+    /// True if the die at (`r`, `c`) sits on the edge of the wafer: off the
+    /// 17x17 grid entirely, or adjacent -- including diagonally -- to an
+    /// absent (`.`) cell. A legal 200mm region may not cover an edge die, so
+    /// it always keeps at least one die of clearance from the wafer's true
+    /// boundary.
+    fn is_edge_die(&self, r: usize, c: usize) -> bool {
+        for dr in -1i32..=1 {
+            for dc in -1i32..=1 {
+                if dr == 0 && dc == 0 {
+                    continue;
+                }
+                let (nr, nc) = (r as i32 + dr, c as i32 + dc);
+                if nr < 0 || nc < 0 || nr as usize >= BOARD_SIZE || nc as usize >= BOARD_SIZE {
+                    return true;
+                }
+                if self.grid[nr as usize][nc as usize] == Die::Absent {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// True if any site the mask would cover at (`row`, `col`) is a wafer
+    /// edge die (see [`WaferMap::is_edge_die`]), making this placement
+    /// illegal regardless of how many good die it covers.
+    fn region_touches_wafer_edge(&self, row: usize, col: usize) -> bool {
+        let mask = mask();
+        mask.iter().enumerate().any(|(dr, mask_row)| {
+            mask_row
+                .iter()
+                .enumerate()
+                .any(|(dc, &covered)| covered && self.is_edge_die(row + dr, col + dc))
+        })
+    }
 }
 
 /// Why a placement scored the way it did: how many good die it captures, how
@@ -361,13 +397,17 @@ pub struct BestRegion {
 }
 
 /// Returns the placement covering the most good ('1') die, scanning every
-/// position where the 11x11 mask fits fully inside the 17x17 board *and*
-/// entirely on present die -- a placement that would hang any mask site off
-/// the wafer's physical edge onto an absent ('.') site is not a legal 200mm
-/// region and is not considered. Ties are broken in favor of the first
+/// position where the 11x11 mask fits fully inside the 17x17 board, entirely
+/// on present die, and with at least one die of clearance from the wafer's
+/// true edge on every side. A placement that would hang any mask site off the
+/// wafer's physical edge onto an absent ('.') site is overhang and illegal;
+/// a placement that would cover a die that itself sits on the wafer's edge
+/// (off-grid or diagonally adjacent to an absent site) is also illegal, even
+/// though that die is present. Ties are broken in favor of the first
 /// placement found (row-major order). Returns `None` if the wafer has no
-/// placement at all that avoids overhang (for example, a wafer whose present
-/// die area is smaller than the mask everywhere it could sit).
+/// placement at all that satisfies both constraints (for example, a wafer
+/// whose present die area, once inset by one die on every side, is smaller
+/// than the mask everywhere it could sit).
 pub fn find_best_region(map: &WaferMap) -> Option<BestRegion> {
     let max_offset = BOARD_SIZE - MASK_SIZE;
     let mut best: Option<BestRegion> = None;
@@ -375,6 +415,9 @@ pub fn find_best_region(map: &WaferMap) -> Option<BestRegion> {
         for col in 0..=max_offset {
             let candidate = map.evaluate(row, col);
             if candidate.stats.overhang > 0 {
+                continue;
+            }
+            if map.region_touches_wafer_edge(row, col) {
                 continue;
             }
             // Strict `>` keeps the first placement in row-major order on ties.

@@ -107,8 +107,9 @@ pub fn analyze_wafer(input: &str) -> Result<AnalysisResult, JsValue> {
     });
     let best = find_best_region(&map).ok_or_else(|| {
         JsValue::from_str(
-            "no 200mm region fits entirely within this wafer without overhang \
-             (its present-die area is smaller than the 200mm mask everywhere it could sit)",
+            "no 200mm region fits entirely within this wafer with at least one die of \
+             clearance from the wafer's edge on every side \
+             (its present-die area is too small everywhere it could sit)",
         )
     })?;
 

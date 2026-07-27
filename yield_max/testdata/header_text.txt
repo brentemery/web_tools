@@ -2,7 +2,7 @@
 # Same grid as test_wafer.txt, but preceded by free-text metadata lines
 # carrying no '#' marker at all -- the kind of header some source systems
 # prepend (lot number, slot, operator, timestamp).
-# expect: row=0 col=4 good=62 defect=31 overhang=0
+# expect: row=2 col=4 good=57 defect=36 overhang=0
 Wafer Map Export
 Lot: ACME-042   Slot: 07
 Operator: J. Diaz   Date: 2026-07-20

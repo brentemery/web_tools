@@ -1,10 +1,9 @@
 # fixture: corner_nw
-# Good die banked into the north-west, with the region's whole 93-site
-# footprint at (0,0) landing on present die (no overhang) so the corner wins
-# outright rather than being disqualified. Drives the region to the (0,0)
-# corner for a reason other than the tie-break: (0,0) beats its nearest
-# neighbor by 8 good die.
-# expect: row=0 col=0 good=59 defect=34 overhang=0
+# Good die banked into the north-west. (0,0) itself is never legal -- it
+# always sits on the wafer's true edge -- so the region settles at (1,1),
+# the nearest legal corner, for a reason other than the tie-break: (1,1)
+# beats its nearest neighbors, (1,2) and (2,1), by 8 good die.
+# expect: row=1 col=1 good=44 defect=49 overhang=0
 ...111111111.....
 ..111111111XXX...
 .111111111XXXXX..

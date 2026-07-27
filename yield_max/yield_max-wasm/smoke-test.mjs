@@ -13,10 +13,10 @@ const r = analyze_wafer(map);
 const b = r.best;
 
 const checks = [
-  ['row', b.row, 0],
+  ['row', b.row, 2],
   ['col', b.col, 4],
-  ['good', b.good, 62],
-  ['defect', b.defect, 31],
+  ['good', b.good, 57],
+  ['defect', b.defect, 36],
   ['overhang', b.overhang, 0],
   ['sites', b.sites, 93],
   ['mask_sites()', mask_sites(), 93],
@@ -40,7 +40,7 @@ r2.best.free(); r2.free();
 try { analyze_wafer('garbage'); console.error('  FAIL: malformed input was accepted'); failed++; }
 catch { /* expected */ }
 
-// A wafer with no die anywhere has no legal overhang-free 200mm placement.
+// A wafer with no die anywhere has no legal 200mm placement.
 try {
   analyze_wafer(Array(17).fill('.'.repeat(17)).join('\n'));
   console.error('  FAIL: an all-absent wafer was accepted');

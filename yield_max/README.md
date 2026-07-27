@@ -41,13 +41,13 @@ OOOOOOOOOOO
 The '.' character represents a non-present die.
 The 'O' character represents a present die in the 200mm wafer.
 
-The goal of this program is to find the 200mm region of the 300mm wafer to maximize the number of good die in from the 300mm wafer overlayed with the 'O' character from the 200mm mask. The 200mm region must land entirely within the 300mm wafer -- no part of the mask may hang off the edge onto a non-present ('.') die -- so a placement that would overhang is never a legal candidate, however many good die it covers. The program should report the number of good die in the 200mm region and generate a new version of the 300mm text file that marks all die in the optimal 200mm region.
+The goal of this program is to find the 200mm region of the 300mm wafer to maximize the number of good die in from the 300mm wafer overlayed with the 'O' character from the 200mm mask. The 200mm region must land entirely within the 300mm wafer -- no part of the mask may hang off the edge onto a non-present ('.') die -- so a placement that would overhang is never a legal candidate, however many good die it covers. On top of that, the region must also be inset by at least one die from the wafer's true edge: a placement is not legal if it covers a die that itself sits on the boundary of the wafer's present-die area (off the grid entirely, or adjacent -- including diagonally -- to a non-present ('.') site), even though that die is present. The program should report the number of good die in the 200mm region and generate a new version of the 300mm text file that marks all die in the optimal 200mm region.
 
 ## Output format (version 2)
 
 The original spec marked every die in the winning region with a single `Z`.
-That answered "where" but not "why": a region of 93 sites that captures 62 good
-die is also carrying 31 defect die, and none of that survived into the output
+That answered "where" but not "why": a region of 93 sites that captures 57 good
+die is also carrying 36 defect die, and none of that survived into the output
 file.
 
 Each cell carries two orthogonal facts — the **die state** and whether the cell
@@ -76,22 +76,22 @@ Lines beginning with `#` are comments, ignored on input. Output carries a
 three-line header so the file is self-describing and greppable:
 
 ```
-# yield_max 2  region=row0,col4
-# good=62 defect=31 overhang=0 sites=93 yield=66.7%
+# yield_max 2  region=row2,col4
+# good=57 defect=36 overhang=0 sites=93 yield=61.3%
 # in-region: Z=good *=defect -=overhang   outside: 1=good X=defect .=absent
-.....11ZZZZZ.....
-...XX1ZZZZZ**X...
-..X11*ZZZ*Z*ZZ1..
-.XXXZZZZZZZ*ZZZX.
-.XXX*ZZZZ**ZZ*ZX.
+.....1111111.....
+...XX111111XXX...
+..X11X1ZZ*Z*111..
+.XXX11ZZZZZ*Z11X.
+.XXXXZZZZ**ZZ*1X.
 XXXX*Z*ZZZZZZ**1X
 XXXX**ZZZZZZZ*ZXX
-X1X11Z*Z*Z*ZZ*1XX
-XXX1X******ZZZXXX
-1XX1XX*Z*ZZ*Z1XX1
-XXXXXXXX*ZZ11X11X
-.11XXXXX11111X11.
-.X1XXX1X11111XXX.
+X1X1ZZ*Z*Z*ZZ*ZXX
+XXX1*******ZZZ*XX
+1XX1X**Z*ZZ*ZZXX1
+XXXXX****ZZZZ*11X
+.11XXX**ZZZZZX11.
+.X1XXX1XZZZ11XXX.
 ..1XX1XXXXX1111..
 ...XXXXXXXXXXX...
 ....X11111X1X....
@@ -136,10 +136,19 @@ silently.
 - **Ties** are broken in favor of the earlier placement in row-major order.
 - A 200mm region must land **entirely on present die**: any placement where
   the mask would hang off the wafer edge onto an absent (`.`) site is not
-  legal and is never considered, however many good die it covers. If *no*
-  placement anywhere avoids overhang — the wafer's present-die area is
-  smaller than the mask everywhere it could sit — there is no legal region at
-  all, and the tool reports an error instead of a result.
+  legal and is never considered, however many good die it covers.
+- A 200mm region must also keep **at least one die of clearance from the
+  wafer's true edge** on every side: a placement is illegal if any of its
+  sites is itself a die that sits on the boundary of the wafer's present-die
+  area — off the 17x17 grid entirely, or adjacent (including diagonally) to
+  an absent (`.`) site — even when that die is present. This rules out row 0,
+  row 16, column 0, and column 16 outright (a die there always borders the
+  grid edge), and can rule out interior placements too, near the wafer's
+  rounded corners.
+- If *no* placement anywhere satisfies both constraints — the wafer's
+  present-die area, once inset by one die on every side, is smaller than the
+  mask everywhere it could sit — there is no legal region at all, and the
+  tool reports an error instead of a result.
 - A **blank line inside the grid** is an error, not something to silently skip
   — dropping it would shift every later row and yield a confidently wrong
   answer. Blank lines around the grid, CRLF endings, and trailing spaces are
@@ -163,12 +172,13 @@ report to stdout. The tool refuses to overwrite its own input file.
 
 ```json
 {"version":2,
- "best":{"row":0,"col":4,"good":62,"defect":31,"overhang":0,"sites":93,"yield":0.6667},
+ "best":{"row":2,"col":4,"good":57,"defect":36,"overhang":0,"sites":93,"yield":0.6129},
  "mask_sites":93,"output":"wafer_optimal.txt"}
 ```
 
-If no placement anywhere avoids overhang, the tool exits with an error instead
-(nonzero exit code, message on stderr) rather than emitting JSON or a report.
+If no placement anywhere satisfies both the overhang and edge-clearance
+constraints, the tool exits with an error instead (nonzero exit code, message
+on stderr) rather than emitting JSON or a report.
 
 ## Layout
 

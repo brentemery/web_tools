@@ -149,11 +149,11 @@ fn finds_known_best_region_for_sample_wafer() {
     assert_eq!(
         best,
         BestRegion {
-            row: 0,
+            row: 2,
             col: 4,
             stats: RegionStats {
-                good: 62,
-                defect: 31,
+                good: 57,
+                defect: 36,
                 overhang: 0,
             }
         }
@@ -162,10 +162,12 @@ fn finds_known_best_region_for_sample_wafer() {
 }
 
 /// The core invariant this file format enforces: a 200mm region that hangs
-/// off the wafer edge is not legal, even when it covers more good die than
-/// the best legal alternative. (0,5) on the sample wafer covers 63 good die
-/// but carries 1 overhang site; it must lose to (0,4), which covers only 62
-/// good die but zero overhang.
+/// off the wafer edge, or that covers a die that itself sits on the wafer's
+/// edge, is not legal -- even when it covers more good die than the best
+/// legal alternative. (0,5) on the sample wafer covers 63 good die but
+/// carries 1 overhang site; (0,4) covers 62 good die with zero overhang but
+/// still fails the edge rule, since row 0 is always the wafer's true edge.
+/// Both lose to (2,4), the actual winner.
 #[test]
 fn overhang_placement_loses_to_a_lower_good_overhang_free_one() {
     let map = WaferMap::parse(SAMPLE).unwrap();
@@ -176,19 +178,21 @@ fn overhang_placement_loses_to_a_lower_good_overhang_free_one() {
     );
 
     let best = find_best_region(&map).unwrap();
-    assert_eq!((best.row, best.col), (0, 4));
+    assert_eq!((best.row, best.col), (2, 4));
     assert!(best.stats.good < with_overhang.stats.good);
     assert_eq!(best.stats.overhang, 0);
 }
 
 /// The docstring promises row-major first-wins on ties; an all-good wafer
-/// makes every placement tie, which pins the behavior.
+/// makes every placement tie, which pins the behavior. (0,0) is never in
+/// contention -- it always touches the wafer's true edge -- so the first
+/// legal placement in row-major order is (1,1).
 #[test]
 fn breaks_ties_toward_first_in_row_major_order() {
     let map = WaferMap::parse(&uniform('1')).unwrap();
     let best = find_best_region(&map).unwrap();
     assert_eq!(best.stats.good, mask_site_count());
-    assert_eq!((best.row, best.col), (0, 0));
+    assert_eq!((best.row, best.col), (1, 1));
 }
 
 #[test]
@@ -254,10 +258,10 @@ fn report_header_carries_the_headline_numbers() {
     let map = WaferMap::parse(SAMPLE).unwrap();
     let report = render_report(&map, &find_best_region(&map).unwrap());
     let header: Vec<&str> = report.lines().take(3).collect();
-    assert_eq!(header[0], "# yield_max 2  region=row0,col4");
+    assert_eq!(header[0], "# yield_max 2  region=row2,col4");
     assert_eq!(
         header[1],
-        "# good=62 defect=31 overhang=0 sites=93 yield=66.7%"
+        "# good=57 defect=36 overhang=0 sites=93 yield=61.3%"
     );
     assert!(header[2].contains("Z=good"));
 }
@@ -425,8 +429,8 @@ fn marked_fixture_round_trips_and_reveals_its_region() {
     let map = WaferMap::parse(&text).expect("marked output must parse");
 
     let recovered = map.marked_region().expect("region should be recoverable");
-    assert_eq!((recovered.row, recovered.col), (0, 4));
-    assert_eq!(recovered.stats.good, 62);
+    assert_eq!((recovered.row, recovered.col), (2, 4));
+    assert_eq!(recovered.stats.good, 57);
 
     let best = find_best_region(&map).unwrap();
     assert_eq!(best, recovered, "re-solving must find the same region");
