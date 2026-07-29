@@ -11,6 +11,11 @@ export class AnalysisResult {
      */
     readonly report: string;
     /**
+     * The tie-break policy that produced this result, so the UI can label the
+     * region with the policy behind it rather than assuming the default.
+     */
+    readonly tiebreak: string;
+    /**
      * A non-fatal advisory, or the empty string. Currently set when the
      * input carried region marks that this run will overwrite.
      */
@@ -27,7 +32,18 @@ export class Placement {
     [Symbol.dispose](): void;
     readonly col: number;
     readonly defect: number;
+    /**
+     * Good die of every grade. Keeps the meaning it had before grades
+     * existed, so a caller reading `good` is not silently handed a subset.
+     */
     readonly good: number;
+    readonly good1: number;
+    readonly good2: number;
+    readonly good3: number;
+    /**
+     * Grade-4 good die -- the figure the solver maximizes.
+     */
+    readonly good4: number;
     readonly overhang: number;
     readonly row: number;
     readonly sites: number;
@@ -37,7 +53,22 @@ export class Placement {
     readonly yield_fraction: number;
 }
 
-export function analyze_wafer(input: string): AnalysisResult;
+/**
+ * Finds the 200mm region covering the most grade-4 die.
+ *
+ * `tie_break` names the policy for settling a tie on the grade-4 count
+ * (`"grade"` or `"total"`); it is optional and trailing so the original
+ * one-argument call still works, and `null`/`undefined`/`""` mean "use the
+ * default". An unrecognized value throws rather than falling back, since a
+ * silent fallback would answer a different question than the one asked.
+ */
+export function analyze_wafer(input: string, tie_break?: string | null): AnalysisResult;
+
+/**
+ * The number of good-die grades, highest first (`[4, 3, 2, 1]`), so the UI can
+ * enumerate grades without assuming how many there are.
+ */
+export function grades_best_first(): Uint8Array;
 
 /**
  * The cell-alphabet legend, so the UI never has to restate it.
@@ -56,6 +87,12 @@ export function mask_rows(): string[];
  */
 export function mask_sites(): number;
 
+/**
+ * The legal `tie_break` values, so the UI builds its control from the solver's
+ * own list instead of hard-coding one that could drift.
+ */
+export function tie_breaks(): string[];
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
@@ -64,18 +101,25 @@ export interface InitOutput {
     readonly __wbg_placement_free: (a: number, b: number) => void;
     readonly analysisresult_best: (a: number) => number;
     readonly analysisresult_report: (a: number) => [number, number];
+    readonly analysisresult_tiebreak: (a: number) => [number, number];
     readonly analysisresult_warning: (a: number) => [number, number];
-    readonly analyze_wafer: (a: number, b: number) => [number, number, number];
+    readonly analyze_wafer: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly grades_best_first: () => [number, number];
     readonly legend: () => [number, number];
     readonly mask_rows: () => [number, number];
     readonly mask_sites: () => number;
     readonly placement_col: (a: number) => number;
     readonly placement_defect: (a: number) => number;
     readonly placement_good: (a: number) => number;
+    readonly placement_good1: (a: number) => number;
+    readonly placement_good2: (a: number) => number;
+    readonly placement_good3: (a: number) => number;
+    readonly placement_good4: (a: number) => number;
     readonly placement_overhang: (a: number) => number;
     readonly placement_row: (a: number) => number;
     readonly placement_sites: (a: number) => number;
     readonly placement_yield_fraction: (a: number) => number;
+    readonly tie_breaks: () => [number, number];
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
