@@ -13,6 +13,25 @@ fn grid_only() -> String {
     lines[lines.len() - BOARD_SIZE..].join("\n")
 }
 
+/// [`SAMPLE`]'s grid with its good die cycled through all four grades, so a
+/// test needing graded input doesn't have to hand-draw a wafer. The exact
+/// assignment is arbitrary but deterministic; tests using it assert only
+/// properties that hold for any assignment.
+fn graded_sample() -> String {
+    let mut n = 0;
+    grid_only()
+        .chars()
+        .map(|ch| {
+            if ch == '1' {
+                n += 1;
+                char::from(b'1' + (n % 4) as u8)
+            } else {
+                ch
+            }
+        })
+        .collect()
+}
+
 fn uniform(ch: char) -> String {
     let row: String = std::iter::repeat_n(ch, BOARD_SIZE).collect();
     (0..BOARD_SIZE)
@@ -24,7 +43,7 @@ fn uniform(ch: char) -> String {
 #[test]
 fn parses_sample_wafer() {
     let map = WaferMap::parse(SAMPLE).expect("valid sample should parse");
-    assert_eq!(map.get(0, 5), Die::Good);
+    assert_eq!(map.get(0, 5), Die::Good(Grade::G1));
     assert_eq!(map.get(0, 0), Die::Absent);
     assert_eq!(map.get(1, 3), Die::Defect);
 }
@@ -151,11 +170,7 @@ fn finds_known_best_region_for_sample_wafer() {
         BestRegion {
             row: 2,
             col: 4,
-            stats: RegionStats {
-                good: 57,
-                defect: 36,
-                overhang: 0,
-            }
+            stats: RegionStats::new([57, 0, 0, 0], 36, 0),
         }
     );
     assert_eq!(best.stats.sites(), mask_site_count());
@@ -173,13 +188,16 @@ fn overhang_placement_loses_to_a_lower_good_overhang_free_one() {
     let map = WaferMap::parse(SAMPLE).unwrap();
     let with_overhang = map.evaluate(0, 5);
     assert_eq!(
-        (with_overhang.stats.good, with_overhang.stats.overhang),
+        (
+            with_overhang.stats.good_total(),
+            with_overhang.stats.overhang
+        ),
         (63, 1)
     );
 
     let best = find_best_region(&map).unwrap();
     assert_eq!((best.row, best.col), (2, 4));
-    assert!(best.stats.good < with_overhang.stats.good);
+    assert!(best.stats.good_total() < with_overhang.stats.good_total());
     assert_eq!(best.stats.overhang, 0);
 }
 
@@ -191,14 +209,14 @@ fn overhang_placement_loses_to_a_lower_good_overhang_free_one() {
 fn breaks_ties_toward_first_in_row_major_order() {
     let map = WaferMap::parse(&uniform('1')).unwrap();
     let best = find_best_region(&map).unwrap();
-    assert_eq!(best.stats.good, mask_site_count());
+    assert_eq!(best.stats.good_total(), mask_site_count());
     assert_eq!((best.row, best.col), (1, 1));
 }
 
 #[test]
 fn handles_all_good_and_all_absent_wafers() {
     let all_good = find_best_region(&WaferMap::parse(&uniform('1')).unwrap()).unwrap();
-    assert_eq!(all_good.stats.good, mask_site_count());
+    assert_eq!(all_good.stats.good_total(), mask_site_count());
     assert_eq!(all_good.stats.yield_fraction(), 1.0);
 
     // An all-absent wafer has no placement anywhere that avoids overhang, so
@@ -235,35 +253,41 @@ fn mark_region_rewrites_exactly_the_mask_footprint() {
 }
 
 /// Every distinguishable state `mark_region` can produce should appear in
-/// its output, which is the whole point of the version-2 alphabet. The
+/// its output, which is the whole point of the version-3 alphabet. The
 /// region here is a raw placement chosen directly via `evaluate`, not
 /// `find_best_region` (which now excludes overhang placements as illegal),
 /// specifically because it carries overhang and so exercises the `-` glyph.
+/// The wafer is a graded one so all four in-region good glyphs appear.
 #[test]
-fn marked_output_uses_all_six_glyphs() {
-    let map = WaferMap::parse(SAMPLE).unwrap();
+fn marked_output_uses_every_glyph_in_the_alphabet() {
+    let map = WaferMap::parse(&graded_sample()).unwrap();
     let region = map.evaluate(0, 5);
     assert_eq!(
         region.stats.overhang, 1,
         "fixture assumption: (0,5) has overhang"
     );
     let marked = mark_region(&map, &region);
-    for ch in ['1', 'X', '.', 'Z', '*', '-'] {
+    for ch in ['1', '2', '3', '4', 'X', '.', 'A', 'B', 'C', 'D', '*', '-'] {
         assert!(marked.contains(ch), "missing glyph {ch:?} in:\n{marked}");
     }
+    // `Z` is accepted on input but must never be emitted.
+    assert!(
+        !marked.contains(LEGACY_IN_REGION_GOOD),
+        "v2's Z must not be emitted:\n{marked}"
+    );
 }
 
 #[test]
 fn report_header_carries_the_headline_numbers() {
     let map = WaferMap::parse(SAMPLE).unwrap();
-    let report = render_report(&map, &find_best_region(&map).unwrap());
+    let report = render_report(&map, &find_best_region(&map).unwrap(), TieBreak::Grade);
     let header: Vec<&str> = report.lines().take(3).collect();
-    assert_eq!(header[0], "# yield_max 2  region=row2,col4");
+    assert_eq!(header[0], "# yield_max 3  region=row2,col4 tiebreak=grade");
     assert_eq!(
         header[1],
-        "# good=57 defect=36 overhang=0 sites=93 yield=61.3%"
+        "# good=57 (g4=0 g3=0 g2=0 g1=57) defect=36 overhang=0 sites=93 yield=61.3%"
     );
-    assert!(header[2].contains("Z=good"));
+    assert!(header[2].contains("D=good4"));
 }
 
 /// The whole point of the lossless alphabet: our own output parses back to
@@ -272,7 +296,7 @@ fn report_header_carries_the_headline_numbers() {
 fn output_round_trips_through_the_parser() {
     let map = WaferMap::parse(SAMPLE).unwrap();
     let best = find_best_region(&map).unwrap();
-    let report = render_report(&map, &best);
+    let report = render_report(&map, &best, TieBreak::Grade);
 
     let reparsed = WaferMap::parse(&report).expect("our own output must parse");
     for r in 0..BOARD_SIZE {
@@ -284,7 +308,11 @@ fn output_round_trips_through_the_parser() {
     assert_eq!(find_best_region(&reparsed), Some(best));
     // Idempotent: re-running on the marked file reproduces it exactly.
     assert_eq!(
-        render_report(&reparsed, &find_best_region(&reparsed).unwrap()),
+        render_report(
+            &reparsed,
+            &find_best_region(&reparsed).unwrap(),
+            TieBreak::Grade
+        ),
         report
     );
 }
@@ -297,6 +325,265 @@ fn unmarked_and_bogus_maps_have_no_recoverable_region() {
     // A stray mark that matches no legal mask placement.
     let bogus = SAMPLE.replacen(".....1111111.....", "Z....1111111.....", 1);
     assert_eq!(WaferMap::parse(&bogus).unwrap().marked_region(), None);
+}
+
+// ---------------------------------------------------------------------------
+// Graded good die and the tie-break policy.
+// ---------------------------------------------------------------------------
+
+/// The alphabet is only lossless if `to_char` and `from_char` are exact
+/// inverses over every state, in both region positions. Table-driven so a new
+/// glyph cannot be added to one direction and forgotten in the other.
+#[test]
+fn every_glyph_round_trips_through_the_die_alphabet() {
+    let states = [
+        Die::Good(Grade::G1),
+        Die::Good(Grade::G2),
+        Die::Good(Grade::G3),
+        Die::Good(Grade::G4),
+        Die::Defect,
+        Die::Absent,
+    ];
+
+    let mut glyphs = std::collections::HashSet::new();
+    for die in states {
+        for in_region in [false, true] {
+            let ch = die.to_char(in_region);
+            assert!(glyphs.insert(ch), "glyph {ch:?} is used for two states");
+            assert_eq!(
+                Die::from_char(ch),
+                Some((die, in_region)),
+                "glyph {ch:?} did not round-trip"
+            );
+        }
+    }
+    assert_eq!(
+        glyphs.len(),
+        12,
+        "expected 4 grades x 2 + defect/absent x 2"
+    );
+
+    // The documented spellings, pinned so a refactor of the derivation from
+    // grade number to character cannot silently renumber the alphabet.
+    assert_eq!(Die::Good(Grade::G4).to_char(false), '4');
+    assert_eq!(Die::Good(Grade::G4).to_char(true), 'D');
+    assert_eq!(Die::Good(Grade::G1).to_char(true), 'A');
+}
+
+/// Version 2 marked every in-region good die `Z`. Such a file must still parse
+/// -- as an in-region grade-1 die -- so an old report is valid input, but `Z`
+/// is never written back out.
+#[test]
+fn legacy_z_parses_as_an_in_region_grade_1_die() {
+    assert_eq!(
+        Die::from_char(LEGACY_IN_REGION_GOOD),
+        Some((Die::Good(Grade::G1), true))
+    );
+    assert_eq!(Die::Good(Grade::G1).to_char(true), 'A');
+
+    // A whole v2 report parses, and re-rendering it yields the v3 alphabet
+    // with the same region and the same die states.
+    let map = WaferMap::parse(SAMPLE).unwrap();
+    let best = find_best_region(&map).unwrap();
+    let v2_report = render_report(&map, &best, TieBreak::Grade).replace('A', "Z");
+    let reparsed = WaferMap::parse(&v2_report).expect("a v2 report must parse");
+    assert_eq!(
+        reparsed.marked_region().map(|r| (r.row, r.col)),
+        Some((2, 4))
+    );
+    let rerendered = render_report(
+        &reparsed,
+        &find_best_region(&reparsed).unwrap(),
+        TieBreak::Grade,
+    );
+    assert!(!rerendered.contains(LEGACY_IN_REGION_GOOD));
+    assert!(rerendered.contains('A'));
+}
+
+/// `1`..`4` are all good die; only the grade differs. `good_total` and
+/// `yield_fraction` count them all, which is what keeps the header's `good=`
+/// and `yield=` fields meaning what they meant in version 2.
+#[test]
+fn all_four_grades_are_good_die() {
+    for (ch, grade) in [
+        ('1', Grade::G1),
+        ('2', Grade::G2),
+        ('3', Grade::G3),
+        ('4', Grade::G4),
+    ] {
+        let map = WaferMap::parse(&uniform(ch)).unwrap();
+        assert_eq!(map.get(8, 8), Die::Good(grade));
+        assert!(map.get(8, 8).is_good());
+
+        let best = find_best_region(&map).unwrap();
+        assert_eq!(best.stats.good_total(), mask_site_count());
+        assert_eq!(best.stats.grade(grade), mask_site_count());
+        assert_eq!(best.stats.yield_fraction(), 1.0);
+        // An all-one-grade wafer is a total tie, so the row-major first-wins
+        // rule applies exactly as it did for an all-`1` wafer.
+        assert_eq!((best.row, best.col), (1, 1));
+    }
+}
+
+/// The objective: more grade-4 die wins, even against a placement carrying
+/// far more good die overall, and under either tie-break policy.
+#[test]
+fn grade_4_count_outranks_total_good_die() {
+    let few_g4 = RegionStats::new([90, 0, 0, 1], 2, 0);
+    let many_good = RegionStats::new([93, 0, 0, 0], 0, 0);
+    for tb in TieBreak::ALL {
+        assert!(
+            few_g4.sort_key(tb) > many_good.sort_key(tb),
+            "{tb}: one grade-4 die must outrank three more good die"
+        );
+    }
+    assert!(many_good.good_total() > few_g4.good_total());
+}
+
+/// Where the two policies part company: equal grade-4 counts, and one side
+/// has better remaining grades while the other has more good die in total.
+#[test]
+fn tie_break_policies_disagree_only_below_the_grade_4_count() {
+    // Same n4; `better_grades` has 2 grade-3, `more_total` has 3 grade-1.
+    let better_grades = RegionStats::new([0, 0, 2, 5], 0, 0);
+    let more_total = RegionStats::new([3, 0, 0, 5], 0, 0);
+    assert_eq!(better_grades.grade(Grade::G4), more_total.grade(Grade::G4));
+    assert!(more_total.good_total() > better_grades.good_total());
+
+    assert!(
+        better_grades.sort_key(TieBreak::Grade) > more_total.sort_key(TieBreak::Grade),
+        "grade policy must prefer the better remaining grades"
+    );
+    assert!(
+        more_total.sort_key(TieBreak::Total) > better_grades.sort_key(TieBreak::Total),
+        "total policy must prefer the larger good count"
+    );
+}
+
+/// `Total` still orders placements that tie on both n4 and the total, so the
+/// result never depends on which of two "equal" candidates was visited first
+/// for reasons the caller can't see.
+#[test]
+fn total_policy_stays_a_total_order_below_the_good_count() {
+    let a = RegionStats::new([1, 0, 2, 5], 0, 0);
+    let b = RegionStats::new([0, 2, 1, 5], 0, 0);
+    assert_eq!(a.good_total(), b.good_total());
+    assert_eq!(a.grade(Grade::G4), b.grade(Grade::G4));
+    assert!(a.sort_key(TieBreak::Total) > b.sort_key(TieBreak::Total));
+    assert_ne!(a.sort_key(TieBreak::Total), b.sort_key(TieBreak::Total));
+}
+
+/// On a wafer with no grade above 1, both keys reduce to the good-die count --
+/// the version-2 objective. This is the property that lets every pre-existing
+/// fixture keep its recorded answer.
+#[test]
+fn both_policies_reduce_to_good_count_without_grades() {
+    for (good, other) in [(57usize, 40usize), (0, 1), (93, 92)] {
+        let more = RegionStats::new([good, 0, 0, 0], 0, 0);
+        let less = RegionStats::new([other, 0, 0, 0], 0, 0);
+        for tb in TieBreak::ALL {
+            assert_eq!(
+                more.sort_key(tb) > less.sort_key(tb),
+                good > other,
+                "{tb}: ungraded comparison must follow the good count"
+            );
+        }
+    }
+}
+
+#[test]
+fn tie_break_names_round_trip_and_junk_is_rejected() {
+    for tb in TieBreak::ALL {
+        assert_eq!(tb.as_str().parse::<TieBreak>(), Ok(tb));
+        assert_eq!(tb.to_string(), tb.as_str());
+    }
+    assert_eq!(TieBreak::default(), TieBreak::Grade);
+
+    // Unrecognized spellings must fail loudly and name the alternatives,
+    // rather than falling back to the default and silently answering a
+    // different question than the one asked.
+    for bad in ["", "Grade", "totals", "g4"] {
+        let err = bad.parse::<TieBreak>().unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("grade") && msg.contains("total"), "got: {msg}");
+    }
+}
+
+/// A report records the policy that produced it, and the parser hands it back,
+/// so re-running on a report can reproduce it instead of quietly switching to
+/// the default.
+#[test]
+fn report_header_records_the_tie_break_and_the_parser_recovers_it() {
+    let map = WaferMap::parse(SAMPLE).unwrap();
+    for tb in TieBreak::ALL {
+        let report = render_report(&map, &find_best_region_with(&map, tb).unwrap(), tb);
+        assert!(
+            report.contains(&format!("tiebreak={tb}")),
+            "header must name the policy: {report}"
+        );
+        let reparsed = WaferMap::parse(&report).unwrap();
+        assert_eq!(reparsed.header_tie_break(), Some(&Ok(tb)));
+    }
+
+    // No header, no opinion -- the caller falls back to its own default.
+    assert_eq!(WaferMap::parse(SAMPLE).unwrap().header_tie_break(), None);
+
+    // A header naming something we don't understand is surfaced as an error,
+    // not treated as absent: the file claims a policy we can't reproduce.
+    let bogus = format!(
+        "# yield_max 3  region=row2,col4 tiebreak=sideways\n{}",
+        SAMPLE
+    );
+    let parsed = WaferMap::parse(&bogus).unwrap();
+    assert!(matches!(parsed.header_tie_break(), Some(Err(_))));
+}
+
+/// The report's grade breakdown must add up to its own `good=` total, and
+/// match the per-grade counts of the region it describes.
+#[test]
+fn report_header_breaks_good_die_down_by_grade() {
+    let map = WaferMap::parse(&graded_sample()).unwrap();
+    let best = find_best_region(&map).unwrap();
+    let report = render_report(&map, &best, TieBreak::Grade);
+    let stats_line = report.lines().nth(1).unwrap();
+
+    assert!(
+        stats_line.contains(&format!("good={} (", best.stats.good_total())),
+        "got: {stats_line}"
+    );
+    for g in Grade::BEST_FIRST {
+        assert!(
+            stats_line.contains(&format!("g{}={}", g.number(), best.stats.grade(g))),
+            "missing grade {} in: {stats_line}",
+            g.number()
+        );
+    }
+    assert_eq!(
+        best.stats.by_grade().iter().sum::<usize>(),
+        best.stats.good_total()
+    );
+}
+
+/// End to end on a real graded wafer: the winner must be the placement with
+/// the most grade-4 die, and no legal placement may beat it on that count.
+#[test]
+fn winner_maximizes_grade_4_over_all_legal_placements() {
+    let map = WaferMap::parse(&graded_sample()).unwrap();
+    for tb in TieBreak::ALL {
+        let best = find_best_region_with(&map, tb).unwrap();
+        for row in 0..=(BOARD_SIZE - MASK_SIZE) {
+            for col in 0..=(BOARD_SIZE - MASK_SIZE) {
+                let c = map.evaluate(row, col);
+                if c.stats.overhang > 0 || map.region_touches_wafer_edge(row, col) {
+                    continue;
+                }
+                assert!(
+                    c.stats.grade(Grade::G4) <= best.stats.grade(Grade::G4),
+                    "{tb}: ({row},{col}) has more grade-4 die than the winner"
+                );
+            }
+        }
+    }
 }
 
 #[test]
@@ -325,12 +612,22 @@ enum Expectation {
     NoRegion,
 }
 
-/// Reads the fixture's `# expect:` line, either `none` or `key=value` pairs.
-fn expectations(text: &str) -> Option<Expectation> {
+/// Reads a fixture's expectation line, either `none` or `key=value` pairs.
+///
+/// `# expect:` gives the answer under the default policy
+/// ([`TieBreak::Grade`]); the optional `# expect-total:` gives it under
+/// [`TieBreak::Total`]. Per-grade counts are written `g4=` .. `g1=`; a fixture
+/// that writes only `good=` is taken to be all grade 1, which is why every
+/// version-2 fixture needed no edit.
+fn expectation_for(text: &str, tie_break: TieBreak) -> Option<Expectation> {
+    let key = match tie_break {
+        TieBreak::Grade => "# expect:",
+        TieBreak::Total => "# expect-total:",
+    };
     let line = text
         .lines()
-        .find(|l| l.starts_with("# expect:"))?
-        .trim_start_matches("# expect:")
+        .find(|l| l.starts_with(key))?
+        .trim_start_matches(key)
         .trim();
     if line == "none" {
         return Some(Expectation::NoRegion);
@@ -340,14 +637,33 @@ fn expectations(text: &str) -> Option<Expectation> {
         let (k, v) = pair.split_once('=')?;
         fields.insert(k, v.parse::<usize>().ok()?);
     }
+
+    // Per-grade counts if given, else the whole `good=` total as grade 1.
+    let mut good = [0usize; GRADES];
+    let graded = Grade::BEST_FIRST
+        .iter()
+        .any(|g| fields.contains_key(format!("g{}", g.number()).as_str()));
+    if graded {
+        for g in Grade::BEST_FIRST {
+            good[g.number() as usize - 1] = *fields.get(format!("g{}", g.number()).as_str())?;
+        }
+        // The total, when also given, must agree -- a fixture header that
+        // contradicts itself is a bug in the fixture.
+        if let Some(total) = fields.get("good") {
+            assert_eq!(
+                *total,
+                good.iter().sum::<usize>(),
+                "fixture header: good= disagrees with the per-grade counts"
+            );
+        }
+    } else {
+        good[0] = *fields.get("good")?;
+    }
+
     Some(Expectation::Region(BestRegion {
         row: *fields.get("row")?,
         col: *fields.get("col")?,
-        stats: RegionStats {
-            good: *fields.get("good")?,
-            defect: *fields.get("defect")?,
-            overhang: *fields.get("overhang")?,
-        },
+        stats: RegionStats::new(good, *fields.get("defect")?, *fields.get("overhang")?),
     }))
 }
 
@@ -383,38 +699,67 @@ fn every_valid_fixture_parses_and_matches_its_expected_result() {
     let mut checked = 0;
     for (name, text) in &fixtures {
         let map = WaferMap::parse(text).unwrap_or_else(|e| panic!("{name}: {e}"));
-        let best = find_best_region(&map);
-        if let Some(region) = &best {
-            assert_eq!(
-                region.stats.sites(),
-                mask_site_count(),
-                "{name}: a placement always covers the same number of sites"
-            );
-            assert_eq!(
-                region.stats.overhang, 0,
-                "{name}: a legal region can never carry overhang"
-            );
-        }
-        match expectations(text) {
-            Some(Expectation::Region(expected)) => {
+        // A fixture is checked under every policy whose expectation it
+        // declares; `# expect-total:` is optional and only appears where the
+        // two policies actually differ.
+        for tie_break in TieBreak::ALL {
+            let best = find_best_region_with(&map, tie_break);
+            if let Some(region) = &best {
                 assert_eq!(
-                    best,
-                    Some(expected),
-                    "{name}: result disagrees with its header"
+                    region.stats.sites(),
+                    mask_site_count(),
+                    "{name}/{tie_break}: a placement always covers the same number of sites"
                 );
-                checked += 1;
-            }
-            Some(Expectation::NoRegion) => {
                 assert_eq!(
-                    best, None,
-                    "{name}: expected no legal region, but found one"
+                    region.stats.overhang, 0,
+                    "{name}/{tie_break}: a legal region can never carry overhang"
                 );
-                checked += 1;
             }
-            None => {}
+            match expectation_for(text, tie_break) {
+                Some(Expectation::Region(expected)) => {
+                    assert_eq!(
+                        best,
+                        Some(expected),
+                        "{name}/{tie_break}: result disagrees with its header"
+                    );
+                    checked += 1;
+                }
+                Some(Expectation::NoRegion) => {
+                    assert_eq!(
+                        best, None,
+                        "{name}/{tie_break}: expected no legal region, but found one"
+                    );
+                    checked += 1;
+                }
+                None => {}
+            }
         }
     }
     assert!(checked >= 9, "only {checked} fixtures carried expectations");
+}
+
+/// The backward-compatibility proof. Every fixture that predates grades uses
+/// only grade-1 good die, and on such a wafer both tie-break policies must
+/// reduce to the version-2 objective ("most good die") and agree. If this ever
+/// fails, the grade work has silently changed an answer for existing users.
+#[test]
+fn both_policies_agree_on_every_ungraded_fixture() {
+    let mut ungraded = 0;
+    for (name, text) in valid_fixtures() {
+        let map = WaferMap::parse(&text).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let uses_only_grade_1 = (0..BOARD_SIZE)
+            .all(|r| (0..BOARD_SIZE).all(|c| map.get(r, c).grade().is_none_or(|g| g == Grade::G1)));
+        if !uses_only_grade_1 {
+            continue;
+        }
+        ungraded += 1;
+        assert_eq!(
+            find_best_region_with(&map, TieBreak::Grade),
+            find_best_region_with(&map, TieBreak::Total),
+            "{name}: policies must agree on an ungraded wafer"
+        );
+    }
+    assert!(ungraded >= 10, "only {ungraded} ungraded fixtures found");
 }
 
 /// The marked fixture is the tool's own output, so re-running on it must be a
@@ -430,16 +775,60 @@ fn marked_fixture_round_trips_and_reveals_its_region() {
 
     let recovered = map.marked_region().expect("region should be recoverable");
     assert_eq!((recovered.row, recovered.col), (2, 4));
-    assert_eq!(recovered.stats.good, 57);
+    assert_eq!(recovered.stats.good_total(), 57);
 
     let best = find_best_region(&map).unwrap();
     assert_eq!(best, recovered, "re-solving must find the same region");
     // Byte-identical below the fixture's leading note lines.
-    let report = render_report(&map, &best);
+    let report = render_report(&map, &best, TieBreak::Grade);
     assert!(
         text.ends_with(&report),
         "re-rendering must reproduce the fixture body"
     );
+}
+
+/// A version-2 report, whose in-region good die are spelled `Z`, must still
+/// parse and still reveal its region -- an old file stays valid input. It does
+/// not round-trip byte for byte, because re-rendering upgrades `Z` to `A`; the
+/// die states and the region are what must survive.
+#[test]
+fn legacy_v2_fixture_parses_and_upgrades_to_the_v3_alphabet() {
+    let text = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../testdata/legacy_z_roundtrip.txt"
+    ))
+    .unwrap();
+    assert!(text.contains('Z'), "fixture must exercise the v2 glyph");
+
+    let map = WaferMap::parse(&text).expect("a v2 report must still parse");
+    let recovered = map.marked_region().expect("region should be recoverable");
+    assert_eq!((recovered.row, recovered.col), (2, 4));
+    assert_eq!(recovered.stats.good_total(), 57);
+    assert_eq!(
+        recovered.stats.grade(Grade::G1),
+        57,
+        "v2 good die are grade 1"
+    );
+
+    // Its die states match the v3 fixture for the same wafer, so the two
+    // spellings really do describe the same result.
+    let v3 = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../testdata/marked_roundtrip.txt"
+    ))
+    .unwrap();
+    let v3_map = WaferMap::parse(&v3).unwrap();
+    for r in 0..BOARD_SIZE {
+        for c in 0..BOARD_SIZE {
+            assert_eq!(map.get(r, c), v3_map.get(r, c), "die state at ({r},{c})");
+        }
+    }
+    assert_eq!(map.marked_region(), v3_map.marked_region());
+
+    // Re-rendering emits the v3 alphabet, never `Z`.
+    let report = render_report(&map, &recovered, TieBreak::Grade);
+    assert!(!report.contains(LEGACY_IN_REGION_GOOD));
+    assert!(v3.ends_with(&report), "must render as the v3 fixture body");
 }
 
 #[test]
@@ -581,7 +970,7 @@ fn flags_marks_that_match_no_legal_placement() {
 
     // Our own output is marked, but consistently so: no warning.
     let map = WaferMap::parse(SAMPLE).unwrap();
-    let report = render_report(&map, &find_best_region(&map).unwrap());
+    let report = render_report(&map, &find_best_region(&map).unwrap(), TieBreak::Grade);
     let remarked = WaferMap::parse(&report).unwrap();
     assert!(remarked.has_marks());
     assert!(!remarked.has_inconsistent_marks());

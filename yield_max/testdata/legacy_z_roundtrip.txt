@@ -1,0 +1,28 @@
+# fixture: legacy_z_roundtrip
+# A version-2 report, back when `Z` was the only in-region good glyph. It must
+# still parse -- as in-region grade-1 die -- and marked_region() must recover
+# row=2 col=4, so an old report remains valid input. Re-rendering it produces
+# the version-3 alphabet (`A` for an in-region grade-1 die), so this fixture
+# deliberately does NOT round-trip byte for byte; see marked_roundtrip.txt for
+# the v3 spelling of the same result.
+# expect: row=2 col=4 good=57 defect=36 overhang=0
+# yield_max 2  region=row2,col4
+# good=57 defect=36 overhang=0 sites=93 yield=61.3%
+# in-region: Z=good *=defect -=overhang   outside: 1=good X=defect .=absent
+.....1111111.....
+...XX111111XXX...
+..X11X1ZZ*Z*111..
+.XXX11ZZZZZ*Z11X.
+.XXXXZZZZ**ZZ*1X.
+XXXX*Z*ZZZZZZ**1X
+XXXX**ZZZZZZZ*ZXX
+X1X1ZZ*Z*Z*ZZ*ZXX
+XXX1*******ZZZ*XX
+1XX1X**Z*ZZ*ZZXX1
+XXXXX****ZZZZ*11X
+.11XXX**ZZZZZX11.
+.X1XXX1XZZZ11XXX.
+..1XX1XXXXX1111..
+...XXXXXXXXXXX...
+....X11111X1X....
+.......XXXX......

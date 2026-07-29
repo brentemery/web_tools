@@ -1,0 +1,26 @@
+# fixture: graded_roundtrip
+# The tool's own version-3 output for the grades_mixed wafer. Re-running on
+# this file must reproduce it byte for byte below these note lines, and
+# marked_region() must recover row=3 col=4. Exercises all four in-region good
+# glyphs (A/B/C/D) on the parse side.
+# expect: row=3 col=4 good=70 g4=21 g3=18 g2=11 g1=20 defect=23 overhang=0
+# yield_max 3  region=row3,col4 tiebreak=grade
+# good=70 (g4=21 g3=18 g2=11 g1=20) defect=23 overhang=0 sites=93 yield=75.3%
+# in-region: D=good4 C=good3 B=good2 A=good1 *=defect -=overhang   outside: 4/3/2/1=good X=defect .=absent
+.....23X2214.....
+...3X33114X343...
+..X331X4113XX13..
+.3X43X1D*D*C1413.
+.X3433*CCDB*B3XX.
+12X13AB*AAB**D212
+432XAD*DD*BBAAC14
+X23XDD*AA*CD*CD4X
+1X3XA*A*AACCADD34
+1343DAAACB***C*X2
+X2142CDD*DAC*B3X1
+.1X42*BACACB**X2.
+.32XX3BDDCCDC33X.
+..323324CDAX333..
+...2X121X3X414...
+....32133142X....
+.......3124......
