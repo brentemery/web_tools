@@ -1,7 +1,8 @@
 # fixture: all_absent
-# No die sites at all. Every mask cell is overhang, so the yield denominator
-# is zero -- this is the divide-by-zero guard.
-# expect: row=0 col=0 good=0 defect=0 overhang=93
+# No die sites at all. Every possible placement is entirely overhang, so no
+# legal 200mm region exists anywhere on this wafer -- find_best_region must
+# return None rather than a region with 93 overhang sites.
+# expect: none
 .................
 .................
 .................

@@ -1,8 +1,9 @@
 # fixture: single_good_die
-# Exactly one good die, at the bottom edge (16,8). Only a low placement can
-# reach it, so the winner is forced away from the tie-break default of (0,0).
-# expect: row=6 col=2 good=1 defect=92 overhang=0
-XXXXXXXXXXXXXXXXX
+# Exactly one good die, at (15,8) -- one row shy of the bottom edge, since
+# row 16 itself can never be covered by a legal placement. Only a low
+# placement can reach it, so the winner is forced away from the tie-break
+# default of (1,1).
+# expect: row=5 col=2 good=1 defect=92 overhang=0
 XXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXX
@@ -19,3 +20,4 @@ XXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXX
 XXXXXXXX1XXXXXXXX
+XXXXXXXXXXXXXXXXX

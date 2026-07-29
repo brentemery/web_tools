@@ -1,7 +1,9 @@
 # fixture: all_defect
-# Every site defective. Zero good die anywhere; every placement ties at 0,
-# so the tie-break decides again. Yield is 0% with a non-zero denominator.
-# expect: row=0 col=0 good=0 defect=93 overhang=0
+# Every site defective. Zero good die anywhere; every legal placement ties
+# at 0, so the tie-break decides again, again landing on (1,1) -- the
+# row-major first placement that keeps clear of the wafer's true edge.
+# Yield is 0% with a non-zero denominator.
+# expect: row=1 col=1 good=0 defect=93 overhang=0
 XXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXX

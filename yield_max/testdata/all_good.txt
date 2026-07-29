@@ -1,7 +1,9 @@
 # fixture: all_good
-# Every site good. All 49 placements tie at 93, so this pins the
-# row-major first-wins tie-break: the answer must be (0,0), not any other corner.
-# expect: row=0 col=0 good=93 defect=0 overhang=0
+# Every site good. All 25 legal placements tie at 93 -- (0,*), (*,0), (6,*),
+# and (*,6) are never legal, since a die there always sits on the wafer's
+# true edge -- so this pins the row-major first-wins tie-break among what's
+# left: the answer must be (1,1), not any other corner of the legal range.
+# expect: row=1 col=1 good=93 defect=0 overhang=0
 11111111111111111
 11111111111111111
 11111111111111111

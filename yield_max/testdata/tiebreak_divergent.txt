@@ -1,0 +1,26 @@
+# fixture: tiebreak_divergent
+# The fixture that justifies --tiebreak. Both policies agree on the grade-4
+# count (17), and then part company:
+#   grade: (2,2) -- 16 grade-3 die, 64 good die total
+#   total: (4,2) -- 14 grade-3 die, 68 good die total
+# Neither answer is wrong; they optimize different things, which is why the
+# choice is the user's. Carries an expectation for each policy.
+# expect: row=2 col=2 good=64 g4=17 g3=16 g2=10 g1=21 defect=29 overhang=0
+# expect-total: row=4 col=2 good=68 g4=17 g3=14 g2=15 g1=22 defect=25 overhang=0
+.....21X11X3.....
+...21X1X34X111...
+..2X24X44XX13XX..
+.X113X31331X134X.
+.X4XX232X11XXXXX.
+X1113124X22XX1241
+13243X2311XX13X11
+42XX1314X4XXX33XX
+1X13442XX4X144X42
+2X3XXX12X1442X313
+4141X3141434XX131
+.X11433X32133123.
+.X342113X121XX11.
+..1111X22X21X31..
+...3XX1X4X2X1X...
+....4313X3X4X....
+.......141X......

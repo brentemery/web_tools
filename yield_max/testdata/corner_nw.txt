@@ -1,12 +1,14 @@
 # fixture: corner_nw
-# Good die banked into the north-west. Drives the region to the (0,0) corner
-# for a reason other than the tie-break.
-# expect: row=0 col=0 good=53 defect=34 overhang=6
-.....1111111.....
-...11111111XXX...
-..11111111XXXXX..
-.11111111XXXXXXX.
-.1111111XXXXXXXX.
+# Good die banked into the north-west. (0,0) itself is never legal -- it
+# always sits on the wafer's true edge -- so the region settles at (1,1),
+# the nearest legal corner, for a reason other than the tie-break: (1,1)
+# beats its nearest neighbors, (1,2) and (2,1), by 8 good die.
+# expect: row=1 col=1 good=44 defect=49 overhang=0
+...111111111.....
+..111111111XXX...
+.111111111XXXXX..
+111111111XXXXXXX.
+11111111XXXXXXXX.
 1111111XXXXXXXXXX
 111111XXXXXXXXXXX
 11111XXXXXXXXXXXX

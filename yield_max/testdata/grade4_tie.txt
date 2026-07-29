@@ -1,0 +1,25 @@
+# fixture: grade4_tie
+# Three placements tie at the maximum grade-4 count (6). The grade ladder
+# settles it: (3,4) has 27 grade-3 die against 26 at (3,3) and 24 at (4,2).
+# Note the winner is NOT the row-major-first tied placement, so the positional
+# tie-break cannot explain this answer -- only the descending grade order can.
+# Both tie-break policies agree here, isolating the grade ladder from the
+# total-good rule.
+# expect: row=3 col=4 good=71 g4=6 g3=27 g2=13 g1=25 defect=22 overhang=0
+.....3XX2331.....
+...X1312X1333X...
+..1432X32133XX3..
+.3131X233343X321.
+.X22X313421211X3.
+41X111X1331113333
+1XX12313312213321
+3X131X1XX22X3X232
+4213X3311X31XX111
+X11141312X432X33X
+33X132XXX31213143
+.434XX31XX34313X.
+.3323XX33214XXXX.
+..X33111XX131XX..
+...XX132XXX1X1...
+....33XX33112....
+.......3X13......

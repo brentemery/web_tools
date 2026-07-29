@@ -74,6 +74,15 @@
         --cell-good: #0ca30c;
         --cell-defect: #d03b3b;
         --region-accent: #2a78d6;
+        /* Grades are one sequential ramp off the good-die hue, not four
+           categorical colours: the grades are ordered, so the encoding should
+           be too, and a reader who can't separate the steps still has the
+           glyph. Grade 4 -- the figure being maximized -- is the darkest and
+           so the most prominent. */
+        --cell-good-1: #a8dea8;
+        --cell-good-2: #6ec96e;
+        --cell-good-3: #33ad33;
+        --cell-good-4: #0a6b0a;
       }
 
       /* Good/defect are the classic red/green confusion pair, so colour alone
@@ -94,6 +103,12 @@
 
       .wafer-cell[data-state='absent']::after {
         color: var(--text-muted);
+      }
+
+      /* The pale end of the grade ramp needs dark text to stay legible. */
+      .wafer-cell[data-grade='1']::after,
+      .wafer-cell[data-grade='2']::after {
+        color: #0b2f0b;
       }
 
       .wafer-viz {
@@ -127,6 +142,19 @@
 
       .wafer-cell[data-state='good'] {
         background: var(--cell-good);
+      }
+
+      .wafer-cell[data-grade='1'] {
+        background: var(--cell-good-1);
+      }
+      .wafer-cell[data-grade='2'] {
+        background: var(--cell-good-2);
+      }
+      .wafer-cell[data-grade='3'] {
+        background: var(--cell-good-3);
+      }
+      .wafer-cell[data-grade='4'] {
+        background: var(--cell-good-4);
       }
 
       .wafer-cell[data-state='defect'] {
@@ -165,6 +193,19 @@
 
       .legend-swatch.good {
         background: var(--cell-good);
+      }
+
+      .legend-swatch.good-1 {
+        background: var(--cell-good-1);
+      }
+      .legend-swatch.good-2 {
+        background: var(--cell-good-2);
+      }
+      .legend-swatch.good-3 {
+        background: var(--cell-good-3);
+      }
+      .legend-swatch.good-4 {
+        background: var(--cell-good-4);
       }
 
       .legend-swatch.defect {
@@ -224,6 +265,50 @@
         color: var(--text-secondary, var(--pico-muted-color));
       }
 
+      /* Tie-break control. Grouped in a fieldset so the radios announce as one
+         choice, with the note explaining what the choice does *not* affect --
+         without it the control reads as if it changed the objective. */
+      .tiebreak {
+        border: 1px solid var(--pico-muted-border-color);
+        border-radius: var(--pico-border-radius);
+        padding: 0.75rem 1rem 0.4rem;
+        margin-bottom: 1rem;
+      }
+
+      .tiebreak legend {
+        font-size: 0.9rem;
+        font-weight: 600;
+        padding: 0 0.35rem;
+      }
+
+      .tiebreak label {
+        display: flex;
+        align-items: baseline;
+        gap: 0.5rem;
+        font-size: 0.9rem;
+        margin-bottom: 0.35rem;
+        cursor: pointer;
+      }
+
+      .tiebreak input[type='radio'] {
+        margin: 0;
+        flex-shrink: 0;
+      }
+
+      .tiebreak .note {
+        font-size: 0.8rem;
+        color: var(--text-secondary, var(--pico-muted-color));
+        margin: 0.15rem 0 0.4rem;
+      }
+
+      .stats .grade-breakdown {
+        list-style: none;
+        padding-left: 0.9rem;
+        margin: 0.25rem 0 0.35rem;
+        font-size: 0.9rem;
+        color: var(--text-secondary, var(--pico-muted-color));
+      }
+
       #marked-map {
         background: var(--pico-card-background-color);
         border: 1px solid var(--pico-muted-border-color);
@@ -239,8 +324,14 @@
     <header>
       <h1>Yield Max</h1>
       <p>
-        Paste a 300mm wafer map (17x17 grid of <code>.</code>/<code>X</code>/<code>1</code>) and find the
-        highest-yielding placement of the 200mm region.
+        Paste a 300mm wafer map (17x17 grid of <code>.</code>/<code>X</code>/<code>1</code>&ndash;<code>4</code>)
+        and find the placement of the 200mm region that captures the most
+        <strong>grade-4</strong> die.
+      </p>
+      <p>
+        Good die are graded <code>1</code>&ndash;<code>4</code>; all four count as good,
+        but grade <code>4</code> is the figure being maximized. <code>X</code> is a
+        defect and <code>.</code> is no die.
       </p>
     </header>
 
@@ -251,10 +342,28 @@
       </div>
 
       <label for="wafer-input">Wafer map</label>
-      <textarea id="wafer-input" rows="17" spellcheck="false" placeholder=".....1111111....."></textarea>
+      <textarea id="wafer-input" rows="17" spellcheck="false" placeholder=".....23X2214....."></textarea>
+
+      <fieldset class="tiebreak">
+        <legend>If placements tie on grade-4 count, prefer</legend>
+        <label>
+          <input type="radio" name="tiebreak" value="grade" checked />
+          <span>the better remaining grades (3, then 2, then 1)</span>
+        </label>
+        <label>
+          <input type="radio" name="tiebreak" value="total" />
+          <span>the most good die overall</span>
+        </label>
+        <p class="note">
+          This never changes the grade-4 count &mdash; that is always maximized.
+          It only decides between placements that capture equally many grade-4
+          die.
+        </p>
+      </fieldset>
 
       <div class="actions">
-        <button id="load-sample-btn" class="secondary">Load sample</button>
+        <button id="load-sample-btn" class="secondary">Load graded sample</button>
+        <button id="load-ungraded-btn" class="secondary">Load ungraded sample</button>
         <button id="analyze-btn" disabled>Analyze</button>
         <button id="download-btn" class="secondary" hidden>Download report</button>
       </div>
@@ -265,11 +374,16 @@
       <div id="results" hidden>
         <p class="summary">
           Best 200mm region: top-left at (row <strong id="result-row"></strong>, col
-          <strong id="result-col"></strong>)
+          <strong id="result-col"></strong>), with grade-4 ties broken by
+          <strong id="result-tiebreak"></strong>.
         </p>
 
         <ul class="stats">
-          <li><strong id="stat-good"></strong> good die</li>
+          <li><strong id="stat-good4"></strong> grade-4 die — the figure being maximized</li>
+          <li>
+            <strong id="stat-good"></strong> good die in total
+            <ul class="grade-breakdown" id="stat-grades"></ul>
+          </li>
           <li><strong id="stat-defect"></strong> defect die</li>
           <li><strong id="stat-overhang"></strong> overhang site(s) — mask area falling off the wafer edge</li>
           <li><strong id="stat-yield"></strong> yield across <strong id="stat-sites"></strong> die sites</li>
@@ -279,7 +393,10 @@
           <div class="wafer-viz">
             <div id="wafer-grid" class="wafer-grid" role="grid" aria-label="Wafer die map with selected 200mm region"></div>
             <div class="legend">
-              <div class="legend-item"><span class="legend-swatch good"></span>Good die (<code>1</code>, <code>Z</code> in region)</div>
+              <div class="legend-item"><span class="legend-swatch good-4"></span>Grade-4 die (<code>4</code>, <code>D</code> in region)</div>
+              <div class="legend-item"><span class="legend-swatch good-3"></span>Grade-3 die (<code>3</code>, <code>C</code> in region)</div>
+              <div class="legend-item"><span class="legend-swatch good-2"></span>Grade-2 die (<code>2</code>, <code>B</code> in region)</div>
+              <div class="legend-item"><span class="legend-swatch good-1"></span>Grade-1 die (<code>1</code>, <code>A</code> in region)</div>
               <div class="legend-item"><span class="legend-swatch defect"></span>Defect die (<code>X</code>, <code>*</code> in region)</div>
               <div class="legend-item"><span class="legend-swatch"></span>Not present (<code>.</code>, <code>-</code> in region)</div>
               <div class="legend-item"><span class="legend-swatch region"></span>Selected 200mm region</div>
@@ -297,9 +414,35 @@
     <div id="cell-tooltip" role="tooltip" hidden></div>
 
     <script type="module">
-      import init, { analyze_wafer, mask_rows } from './yield_max-wasm/pkg/yield_max_wasm.js';
+      import init, {
+        analyze_wafer,
+        mask_rows,
+        tie_breaks,
+        grades_best_first,
+      } from './yield_max-wasm/pkg/yield_max_wasm.js';
 
-      const SAMPLE = `.....1111111.....
+      // Two samples on purpose: the graded one shows what the tool now
+      // optimizes for, and the ungraded one is a real version-2 map, kept so
+      // the page demonstrates that such a file still works unchanged.
+      const GRADED_SAMPLE = `.....23X2214.....
+...3X33114X343...
+..X331X4113XX13..
+.3X43X14X4X31413.
+.X3433X3342X23XX.
+12X1312X112XX4212
+432X14X44X2211314
+X23X44X11X34X344X
+1X3X1X1X113314434
+1343411132XXX3XX2
+X2142344X413X23X1
+.1X42X213132XXX2.
+.32XX3244334333X.
+..323324341X333..
+...2X121X3X414...
+....32133142X....
+.......3124......`;
+
+      const UNGRADED_SAMPLE = `.....1111111.....
 ...XX111111XXX...
 ..X11X111X1X111..
 .XXX1111111X111X.
@@ -365,7 +508,11 @@ XXXXXXXXX1111X11X
       }
 
       document.getElementById('load-sample-btn').addEventListener('click', () => {
-        input.value = SAMPLE;
+        input.value = GRADED_SAMPLE;
+      });
+
+      document.getElementById('load-ungraded-btn').addEventListener('click', () => {
+        input.value = UNGRADED_SAMPLE;
       });
 
       // Mirrors MAX_INPUT_BYTES in yield_max-core: refuse to read a file that
@@ -422,21 +569,37 @@ XXXXXXXXX1111X11X
         tooltip.hidden = true;
       }
 
-      // Maps a glyph from the version-2 alphabet to its die state. Both the
-      // in-region and out-of-region spellings resolve to the same state.
+      // Maps a glyph from the version-3 alphabet to its die state and, for a
+      // good die, its grade. Both the in-region and out-of-region spellings
+      // resolve to the same state, which is what makes the format lossless.
+      // Built from grades_best_first() rather than written out, so adding a
+      // grade in the solver cannot leave the UI silently behind.
       const STATE_BY_GLYPH = {
-        1: 'good',
-        Z: 'good',
-        X: 'defect',
-        '*': 'defect',
-        '.': 'absent',
-        '-': 'absent',
+        X: { state: 'defect' },
+        '*': { state: 'defect' },
+        '.': { state: 'absent' },
+        '-': { state: 'absent' },
+        // Version 2's only in-region good glyph. Still readable, so an old
+        // report pasted into this page still renders.
+        Z: { state: 'good', grade: 1 },
       };
+      for (const grade of grades_best_first()) {
+        STATE_BY_GLYPH[String(grade)] = { state: 'good', grade };
+        STATE_BY_GLYPH[String.fromCharCode('A'.charCodeAt(0) + grade - 1)] = {
+          state: 'good',
+          grade,
+        };
+      }
+
       const STATE_LABEL = {
-        good: 'Good die',
         defect: 'Defect die',
         absent: 'Not present',
       };
+
+      function cellLabel(info) {
+        if (info.state !== 'good') return STATE_LABEL[info.state];
+        return `Grade-${info.grade} good die`;
+      }
 
       function renderGrid(rows, best) {
         grid.textContent = '';
@@ -449,13 +612,16 @@ XXXXXXXXX1111X11X
 
           for (let c = 0; c < BOARD_SIZE; c++) {
             const glyph = rows[r][c];
-            const state = STATE_BY_GLYPH[glyph] ?? 'absent';
+            const info = STATE_BY_GLYPH[glyph] ?? { state: 'absent' };
             const region = inRegion(r, c, best);
 
             const cell = document.createElement('div');
             cell.className = 'wafer-cell';
             cell.setAttribute('role', 'gridcell');
-            cell.dataset.state = state;
+            cell.dataset.state = info.state;
+            // Only good die carry a grade; the attribute drives the colour
+            // ramp, so it must be absent (not "0") for everything else.
+            if (info.grade !== undefined) cell.dataset.grade = String(info.grade);
             cell.dataset.region = String(region);
             cell.dataset.glyph = glyph;
             cell.tabIndex = 0;
@@ -469,9 +635,12 @@ XXXXXXXXX1111X11X
 
             let suffix = '';
             if (region) {
-              suffix = state === 'absent' ? ' — in region, overhang (no die)' : ' — in selected region';
+              suffix =
+                info.state === 'absent'
+                  ? ' — in region, overhang (no die)'
+                  : ' — in selected region';
             }
-            const label = `Row ${r}, col ${c}: ${STATE_LABEL[state]}${suffix}`;
+            const label = `Row ${r}, col ${c}: ${cellLabel(info)}${suffix}`;
             cell.setAttribute('aria-label', label);
 
             cell.addEventListener('pointerenter', () => showTooltip(cell, label));
@@ -484,7 +653,22 @@ XXXXXXXXX1111X11X
         }
       }
 
-      analyzeBtn.addEventListener('click', () => {
+      // Validated against the solver's own list, so a stale radio in the
+      // markup surfaces here rather than being passed through to wasm.
+      const TIE_BREAKS = tie_breaks();
+
+      function selectedTieBreak() {
+        const checked = document.querySelector('input[name="tiebreak"]:checked');
+        const value = checked?.value;
+        if (!TIE_BREAKS.includes(value)) {
+          throw new Error(
+            `Unknown tie-break ${JSON.stringify(value)}; expected one of ${TIE_BREAKS.join(', ')}.`
+          );
+        }
+        return value;
+      }
+
+      function analyze() {
         clearError();
         results.hidden = true;
         downloadBtn.hidden = true;
@@ -493,14 +677,16 @@ XXXXXXXXX1111X11X
         let analysis = null;
         let best = null;
         let warningText = '';
+        let tieBreak = '';
         try {
-          analysis = analyze_wafer(input.value);
+          analysis = analyze_wafer(input.value, selectedTieBreak());
           // Copy everything out of WASM memory before freeing the handles.
           const b = analysis.best;
           best = {
             row: b.row,
             col: b.col,
             good: b.good,
+            byGrade: { 1: b.good1, 2: b.good2, 3: b.good3, 4: b.good4 },
             defect: b.defect,
             overhang: b.overhang,
             sites: b.sites,
@@ -510,6 +696,7 @@ XXXXXXXXX1111X11X
 
           lastReport = analysis.report;
           warningText = analysis.warning;
+          tieBreak = analysis.tiebreak;
         } catch (err) {
           showError(typeof err === 'string' ? err : err.message || String(err));
           return;
@@ -521,7 +708,19 @@ XXXXXXXXX1111X11X
 
         document.getElementById('result-row').textContent = best.row;
         document.getElementById('result-col').textContent = best.col;
+        document.getElementById('result-tiebreak').textContent = tieBreak;
+        document.getElementById('stat-good4').textContent = best.byGrade[4];
         document.getElementById('stat-good').textContent = best.good;
+
+        // Per-grade breakdown, best grade first, so the number being maximized
+        // reads first and the list matches the legend's order.
+        const gradeList = document.getElementById('stat-grades');
+        gradeList.textContent = '';
+        for (const grade of grades_best_first()) {
+          const li = document.createElement('li');
+          li.textContent = `${best.byGrade[grade]} grade-${grade}`;
+          gradeList.appendChild(li);
+        }
         document.getElementById('stat-defect').textContent = best.defect;
         document.getElementById('stat-overhang').textContent = best.overhang;
         document.getElementById('stat-sites').textContent = best.sites;
@@ -539,7 +738,18 @@ XXXXXXXXX1111X11X
         if (warningText) showWarning(warningText);
         results.hidden = false;
         downloadBtn.hidden = false;
-      });
+      }
+
+      analyzeBtn.addEventListener('click', analyze);
+
+      // Re-analyze on a policy change, but only once a result is on screen:
+      // before that there is nothing to update, and running on an empty
+      // textarea would just raise a parse error the user didn't ask for.
+      for (const radio of document.querySelectorAll('input[name="tiebreak"]')) {
+        radio.addEventListener('change', () => {
+          if (!results.hidden) analyze();
+        });
+      }
     </script>
   </body>
 </html>

@@ -1,0 +1,24 @@
+# fixture: grades_mixed
+# All four good-die grades scattered across the wafer, with defects mixed in.
+# The winning placement (3,4) captures 21 grade-4 die but only 70 good die in
+# total, while (3,2) captures 72 good die with just 19 grade-4. Maximizing
+# grade 4 must beat maximizing good die -- this is the fixture that proves the
+# objective changed.
+# expect: row=3 col=4 good=70 g4=21 g3=18 g2=11 g1=20 defect=23 overhang=0
+.....23X2214.....
+...3X33114X343...
+..X331X4113XX13..
+.3X43X14X4X31413.
+.X3433X3342X23XX.
+12X1312X112XX4212
+432X14X44X2211314
+X23X44X11X34X344X
+1X3X1X1X113314434
+1343411132XXX3XX2
+X2142344X413X23X1
+.1X42X213132XXX2.
+.32XX3244334333X.
+..323324341X333..
+...2X121X3X414...
+....32133142X....
+.......3124......

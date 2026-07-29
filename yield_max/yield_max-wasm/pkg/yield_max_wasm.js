@@ -41,6 +41,23 @@ export class AnalysisResult {
         }
     }
     /**
+     * The tie-break policy that produced this result, so the UI can label the
+     * region with the policy behind it rather than assuming the default.
+     * @returns {string}
+     */
+    get tiebreak() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.analysisresult_tiebreak(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
      * A non-fatal advisory, or the empty string. Currently set when the
      * input carried region marks that this run will overwrite.
      * @returns {string}
@@ -96,10 +113,41 @@ export class Placement {
         return ret >>> 0;
     }
     /**
+     * Good die of every grade. Keeps the meaning it had before grades
+     * existed, so a caller reading `good` is not silently handed a subset.
      * @returns {number}
      */
     get good() {
         const ret = wasm.placement_good(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get good1() {
+        const ret = wasm.placement_good1(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get good2() {
+        const ret = wasm.placement_good2(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get good3() {
+        const ret = wasm.placement_good3(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Grade-4 good die -- the figure the solver maximizes.
+     * @returns {number}
+     */
+    get good4() {
+        const ret = wasm.placement_good4(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -135,17 +183,39 @@ export class Placement {
 if (Symbol.dispose) Placement.prototype[Symbol.dispose] = Placement.prototype.free;
 
 /**
+ * Finds the 200mm region covering the most grade-4 die.
+ *
+ * `tie_break` names the policy for settling a tie on the grade-4 count
+ * (`"grade"` or `"total"`); it is optional and trailing so the original
+ * one-argument call still works, and `null`/`undefined`/`""` mean "use the
+ * default". An unrecognized value throws rather than falling back, since a
+ * silent fallback would answer a different question than the one asked.
  * @param {string} input
+ * @param {string | null} [tie_break]
  * @returns {AnalysisResult}
  */
-export function analyze_wafer(input) {
+export function analyze_wafer(input, tie_break) {
     const ptr0 = passStringToWasm0(input, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.analyze_wafer(ptr0, len0);
+    var ptr1 = isLikeNone(tie_break) ? 0 : passStringToWasm0(tie_break, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    var len1 = WASM_VECTOR_LEN;
+    const ret = wasm.analyze_wafer(ptr0, len0, ptr1, len1);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
     return AnalysisResult.__wrap(ret[0]);
+}
+
+/**
+ * The number of good-die grades, highest first (`[4, 3, 2, 1]`), so the UI can
+ * enumerate grades without assuming how many there are.
+ * @returns {Uint8Array}
+ */
+export function grades_best_first() {
+    const ret = wasm.grades_best_first();
+    var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v1;
 }
 
 /**
@@ -185,6 +255,18 @@ export function mask_rows() {
 export function mask_sites() {
     const ret = wasm.mask_sites();
     return ret >>> 0;
+}
+
+/**
+ * The legal `tie_break` values, so the UI builds its control from the solver's
+ * own list instead of hard-coding one that could drift.
+ * @returns {string[]}
+ */
+export function tie_breaks() {
+    const ret = wasm.tie_breaks();
+    var v1 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v1;
 }
 function __wbg_get_imports() {
     const import0 = {
@@ -231,6 +313,11 @@ function getArrayJsValueFromWasm0(ptr, len) {
     return result;
 }
 
+function getArrayU8FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
+}
+
 let cachedDataViewMemory0 = null;
 function getDataViewMemory0() {
     if (cachedDataViewMemory0 === null || cachedDataViewMemory0.buffer.detached === true || (cachedDataViewMemory0.buffer.detached === undefined && cachedDataViewMemory0.buffer !== wasm.memory.buffer)) {
@@ -249,6 +336,10 @@ function getUint8ArrayMemory0() {
         cachedUint8ArrayMemory0 = new Uint8Array(wasm.memory.buffer);
     }
     return cachedUint8ArrayMemory0;
+}
+
+function isLikeNone(x) {
+    return x === undefined || x === null;
 }
 
 function passStringToWasm0(arg, malloc, realloc) {
