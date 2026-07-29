@@ -242,6 +242,28 @@ usage: yield_max [options] <input_path> [output_path]
 Output defaults to `<input>_optimal.txt` beside the input; `-` writes the
 report to stdout. The tool refuses to overwrite its own input file.
 
+### The HTML report
+
+Every run also writes an **HTML report** of the same result: the marked wafer
+as a colour-coded grid with the chosen region outlined, the headline numbers,
+the legend, and the text report itself in a collapsed `<details>`. It is the
+same view the web frontend shows, so a CLI run can be opened in a browser or
+attached to a ticket without pasting anything into the page.
+
+It goes beside the text report with a `.html` extension —
+`<input>_optimal.html` by default, `<output>.html` when an output path is
+given, and `<input>_optimal.html` when the report goes to stdout, since there
+is no output path to sit beside. Asking for the *text* report at a `.html`
+path is an error rather than a silent clobber.
+
+Two properties the renderer holds to, both tested:
+
+- **Self-contained** — styles are inline and there is no script and no external
+  reference of any kind, so the file renders from wherever it was written, with
+  no network.
+- **Deterministic** — no timestamp or other run-varying content, so two reports
+  of the same input are byte-identical and diffable.
+
 `--json` is the interface for other programs — don't parse the ASCII art:
 
 ```json
@@ -249,12 +271,16 @@ report to stdout. The tool refuses to overwrite its own input file.
  "best":{"row":2,"col":4,"good":57,
          "good_by_grade":{"4":0,"3":0,"2":0,"1":57},
          "defect":36,"overhang":0,"sites":93,"yield":0.6129},
- "mask_sites":93,"output":"wafer_optimal.txt"}
+ "mask_sites":93,"output":"wafer_optimal.txt",
+ "html":"wafer_optimal.html"}
 ```
 
 `good` keeps its version-2 meaning (all grades summed), so a consumer reading
 it is not silently handed a subset; `good_by_grade` is additive alongside it.
 `version` bumping to 3 is the tripwire for anything that needs to care.
+`html` was added without a further bump: it is purely additive, no existing
+field changed shape, and the number is shared with the text report's
+`# yield_max 3` header, which is unchanged.
 
 If no placement anywhere satisfies both the overhang and edge-clearance
 constraints, the tool exits with an error instead (nonzero exit code, message
@@ -266,7 +292,9 @@ fallback to the default.
 
 - `yield_max-core/` — dependency-free solver and file format. Single source of
   truth for the mask shape (`MASK_TEMPLATE`), the cell alphabet (`Die`,
-  `Grade`), and the tie-break policies (`TieBreak`).
+  `Grade`), and the tie-break policies (`TieBreak`). Both output faces live
+  here too: `render_report` (text) and `render_html`, so the numbers, glyphs
+  and legend cannot differ between them.
 - `yield_max-cli/` — command-line frontend.
 - `yield_max-wasm/` — `wasm-bindgen` wrapper; also re-exports the mask via
   `mask_rows()`, the grades via `grades_best_first()`, and the policies via
