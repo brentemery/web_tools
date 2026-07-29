@@ -1,1 +1,5 @@
 target/
+
+# Reports the CLI writes beside its input when run in the repo.
+*_optimal.txt
+*_optimal.html

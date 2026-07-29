@@ -76,9 +76,41 @@ jobs:
           cargo run --quiet -p yield_max-cli -- test_wafer.txt - > /tmp/report.txt
           grep -q '^# good=57 (g4=0 g3=0 g2=0 g1=57) defect=36 overhang=0 sites=93 yield=61.3%$' /tmp/report.txt
 
+          # Every run also writes an HTML report. With the text report going to
+          # stdout there is no output path to sit beside, so it is named after
+          # the input instead.
+          test -f test_wafer_optimal.html
+
           # Our own output must be valid input and reproduce itself exactly.
           cargo run --quiet -p yield_max-cli -- /tmp/report.txt - > /tmp/again.txt
           diff /tmp/report.txt /tmp/again.txt
+
+          # The HTML report has to render from wherever it was written, so it
+          # may not reference anything outside itself or need script.
+          cargo run --quiet -p yield_max-cli -- test_wafer.txt /tmp/html_check.txt > /dev/null
+          grep -q '^<!doctype html>$' /tmp/html_check.html
+          grep -q 'data-glyph=' /tmp/html_check.html
+          grep -q 'Best 200mm region' /tmp/html_check.html
+          if grep -qE '<script|https?://|href=|src=' /tmp/html_check.html; then
+            echo "::error::the HTML report must be self-contained"
+            exit 1
+          fi
+
+          # Nothing in it varies between runs, so two reports of one input are
+          # byte-identical and a stale one shows up as a difference.
+          cargo run --quiet -p yield_max-cli -- test_wafer.txt /tmp/html_again.txt > /dev/null
+          diff /tmp/html_check.html /tmp/html_again.html
+
+          # The JSON interface reports where the HTML went.
+          cargo run --quiet -p yield_max-cli -- --json test_wafer.txt /tmp/json_out.txt \
+            | grep -q '"html":"/tmp/json_out.html"'
+
+          # Asking for the *text* report at a .html path would have the HTML
+          # report land on top of it; that must fail rather than clobber it.
+          if cargo run --quiet -p yield_max-cli -- test_wafer.txt /tmp/collide.html 2>/dev/null; then
+            echo "::error::a text output path that the HTML report would overwrite was accepted"
+            exit 1
+          fi
 
           # The graded objective, end to end: on tiebreak_divergent both
           # policies capture 17 grade-4 die but choose different regions, so

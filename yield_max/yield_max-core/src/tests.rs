@@ -986,3 +986,211 @@ fn rejects_cr_only_line_endings() {
         ParseError::WrongRowCount(_) | ParseError::WrongRowLength { .. }
     ));
 }
+
+// ---------------------------------------------------------------------------
+// The HTML report. The page is written to arbitrary locations and opened
+// directly from disk, so the tests here are mostly about what must *not* be in
+// it (external references, scripts, run-varying content) and about the grid
+// agreeing with the text report it sits beside.
+// ---------------------------------------------------------------------------
+
+/// Solves `text` and renders both faces of the result.
+fn html_for(text: &str, tie_break: TieBreak) -> (WaferMap, BestRegion, String) {
+    let map = WaferMap::parse(text).expect("fixture must parse");
+    let best = find_best_region_with(&map, tie_break).expect("fixture must have a legal region");
+    let html = render_html(&map, &best, tie_break, Some("wafer.txt"));
+    (map, best, html)
+}
+
+fn unescape(s: &str) -> String {
+    s.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&amp;", "&")
+}
+
+/// The `data-glyph` values in document order, i.e. the grid as the page draws
+/// it (the glyph is rendered by CSS from this attribute).
+fn glyphs_in(html: &str) -> String {
+    html.split("data-glyph=\"")
+        .skip(1)
+        .map(|rest| {
+            let value = unescape(rest.split('"').next().unwrap());
+            assert_eq!(value.chars().count(), 1, "one glyph per cell: {value:?}");
+            value
+        })
+        .collect()
+}
+
+/// The report embedded in the page's `<details>`, un-escaped.
+fn embedded_report(html: &str) -> String {
+    let body = html
+        .split_once("<pre>")
+        .expect("the page carries the raw report")
+        .1
+        .split_once("</pre>")
+        .expect("unterminated <pre>")
+        .0;
+    unescape(body)
+}
+
+/// The page has to render from wherever it was written -- a sibling directory,
+/// an attachment, a machine with no network -- so it may not reference anything
+/// outside itself, and it must not need script to be readable.
+#[test]
+fn html_report_is_self_contained() {
+    for (name, text) in [("ungraded", SAMPLE), ("graded", &graded_sample()[..])] {
+        let (_, _, html) = html_for(text, TieBreak::Grade);
+        assert!(html.starts_with("<!doctype html>\n"), "{name}");
+        assert!(html.ends_with("</html>\n"), "{name}");
+        for forbidden in ["<script", "href=", "src=", "http://", "https://", "@import"] {
+            assert!(
+                !html.contains(forbidden),
+                "{name}: page must not contain {forbidden}"
+            );
+        }
+        // A leftover reference to the web page's stylesheet variables would
+        // render as an unstyled fallback here, since Pico is not loaded.
+        assert!(!html.contains("var(--pico-"), "{name}");
+    }
+}
+
+/// Same input, same bytes: no timestamp or other run-varying content, so two
+/// reports can be diffed and a stale one is visible as a difference.
+#[test]
+fn html_report_is_deterministic() {
+    let map = WaferMap::parse(&graded_sample()).unwrap();
+    let best = find_best_region(&map).unwrap();
+    let once = render_html(&map, &best, TieBreak::Grade, Some("wafer.txt"));
+    let twice = render_html(&map, &best, TieBreak::Grade, Some("wafer.txt"));
+    assert_eq!(once, twice);
+
+    // The source label is optional, and its absence must not break the page.
+    let anonymous = render_html(&map, &best, TieBreak::Grade, None);
+    assert!(anonymous.starts_with("<!doctype html>\n"));
+    assert!(!anonymous.contains("wafer.txt"));
+}
+
+/// One cell per die site, and exactly the mask's worth of them marked as being
+/// in the region -- the tightest available check that the drawn region is the
+/// one the solver chose.
+#[test]
+fn html_report_draws_every_cell_and_marks_only_the_region() {
+    let (_, _, html) = html_for(&graded_sample(), TieBreak::Grade);
+    assert_eq!(
+        html.matches("class=\"wafer-cell\"").count(),
+        BOARD_SIZE * BOARD_SIZE
+    );
+    assert_eq!(
+        html.matches("data-region=\"true\"").count(),
+        mask_site_count()
+    );
+    assert_eq!(
+        html.matches("data-region=\"false\"").count(),
+        BOARD_SIZE * BOARD_SIZE - mask_site_count()
+    );
+}
+
+/// The picture and the text must be the same result: the glyph the page draws
+/// in each cell is the character the `.txt` report writes there.
+#[test]
+fn html_report_grid_matches_the_marked_text() {
+    for tie_break in TieBreak::ALL {
+        let (map, best, html) = html_for(&graded_sample(), tie_break);
+        let marked: String = mark_region(&map, &best).replace('\n', "");
+        assert_eq!(glyphs_in(&html), marked, "{tie_break}");
+    }
+}
+
+/// `data-grade` drives the colour ramp, so it must be present exactly on good
+/// die and carry the right grade -- a cell coloured for the wrong grade would
+/// misreport the very number being maximized.
+#[test]
+fn html_report_grade_attributes_match_the_glyphs() {
+    let (map, best, html) = html_for(&graded_sample(), TieBreak::Grade);
+    let marked = mark_region(&map, &best);
+
+    let mut good = 0;
+    for g in Grade::BEST_FIRST {
+        let die = Die::Good(g);
+        let expected = marked
+            .chars()
+            .filter(|&ch| ch == die.to_char(false) || ch == die.to_char(true))
+            .count();
+        assert!(expected > 0, "fixture should use grade {}", g.number());
+        assert_eq!(
+            html.matches(&format!("data-grade=\"{}\"", g.number()))
+                .count(),
+            expected,
+            "grade {}",
+            g.number()
+        );
+        good += expected;
+    }
+    // Nothing but a good die carries a grade. Counting the double-quoted form
+    // keeps this to attributes: the stylesheet's selectors are single-quoted.
+    assert_eq!(html.matches("data-grade=\"").count(), good);
+    assert_eq!(html.matches("data-state=\"good\"").count(), good);
+}
+
+/// The page embeds the text report verbatim, so a report separated from its
+/// `.txt` sibling can still be recovered from it -- including the `tiebreak=`
+/// header that makes the result reproducible.
+#[test]
+fn html_report_embeds_a_reparseable_report() {
+    for tie_break in TieBreak::ALL {
+        let (map, best, html) = html_for(&graded_sample(), tie_break);
+        let embedded = embedded_report(&html);
+        assert_eq!(
+            embedded,
+            render_report(&map, &best, tie_break),
+            "{tie_break}"
+        );
+
+        let reparsed = WaferMap::parse(&embedded).expect("embedded report must parse");
+        assert_eq!(reparsed.marked_region(), Some(best), "{tie_break}");
+        assert_eq!(
+            reparsed.header_tie_break().and_then(|r| r.as_ref().ok()),
+            Some(&tie_break)
+        );
+    }
+}
+
+#[test]
+fn html_report_shows_the_headline_numbers() {
+    let (_, best, html) = html_for(&graded_sample(), TieBreak::Grade);
+    let s = best.stats;
+    for expected in [
+        format!("<strong>{}</strong> grade-4 die", s.grade(Grade::G4)),
+        format!("<strong>{}</strong> good die in total", s.good_total()),
+        format!("<strong>{}</strong> defect die", s.defect),
+        format!("<strong>{}</strong> overhang site(s)", s.overhang),
+        format!("<strong>{}</strong> die sites", s.sites()),
+        format!("<strong>{:.1}%</strong> yield", s.yield_fraction() * 100.0),
+        format!("row <strong>{}</strong>", best.row),
+        format!("col <strong>{}</strong>", best.col),
+    ] {
+        assert!(html.contains(&expected), "missing {expected:?}");
+    }
+    // Every grade is broken out, best first, matching the legend's order.
+    for g in Grade::BEST_FIRST {
+        assert!(html.contains(&format!("<li>{} grade-{}</li>", s.grade(g), g.number())));
+    }
+    assert!(html.contains("ties broken by <strong>grade</strong>"));
+}
+
+/// The source label is a path, and a path can contain anything.
+#[test]
+fn html_report_escapes_its_source_label() {
+    let map = WaferMap::parse(SAMPLE).unwrap();
+    let best = find_best_region(&map).unwrap();
+    let html = render_html(
+        &map,
+        &best,
+        TieBreak::Grade,
+        Some("<script>alert(1)</script> a&b \"q\""),
+    );
+    assert!(!html.contains("<script"));
+    assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt; a&amp;b &quot;q&quot;"));
+}

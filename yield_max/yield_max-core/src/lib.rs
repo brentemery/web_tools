@@ -37,6 +37,9 @@
 //! anything not marked with `#`) are also tolerated: any leading line that
 //! isn't 17 characters wide is dropped before the grid is parsed.
 
+mod html;
+pub use html::render_html;
+
 pub const BOARD_SIZE: usize = 17;
 pub const MASK_SIZE: usize = 11;
 

@@ -4,18 +4,24 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use yield_max_core::{
-    find_best_region_with, mask_site_count, render_report, BestRegion, Grade, TieBreak, WaferMap,
-    MAX_INPUT_BYTES,
+    find_best_region_with, mask_site_count, render_html, render_report, BestRegion, Grade,
+    TieBreak, WaferMap, MAX_INPUT_BYTES,
 };
 
 const USAGE: &str = "\
 usage: yield_max [options] <input_path> [output_path]
 
 Finds the highest-yielding placement of the 200mm region on a 300mm wafer
-map and writes a marked copy of the map.
+map and writes a marked copy of the map, plus a standalone HTML report of
+the same result.
 
 If output_path is omitted it defaults to <input>_optimal.txt alongside the
 input. Use '-' as the output path to write the report to stdout instead.
+
+The HTML report is written beside the text one, with a .html extension:
+<input>_optimal.html by default, <output>.html when an output path is
+given, and <input>_optimal.html when the report goes to stdout. It needs no
+network or other files to render.
 
 The region chosen is the one covering the most grade-4 ('4') die. Good die
 are graded 1..4; all four count as good, but grade 4 is what is maximized.
@@ -89,15 +95,25 @@ fn parse_args(argv: impl Iterator<Item = String>) -> Result<Option<Args>, String
     }))
 }
 
-fn default_output_path(input_path: &Path) -> PathBuf {
+fn default_output_path(input_path: &Path, ext: &str) -> PathBuf {
     let stem = input_path
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("wafer");
-    let file_name = format!("{stem}_optimal.txt");
+    let file_name = format!("{stem}_optimal.{ext}");
     match input_path.parent() {
         Some(parent) if !parent.as_os_str().is_empty() => parent.join(file_name),
         _ => PathBuf::from(file_name),
+    }
+}
+
+/// Where the HTML report goes: beside the text report when there is one, so the
+/// pair travels together, and derived from the input otherwise (the text report
+/// went to stdout, but the HTML still has to land somewhere).
+fn html_output_path(text_output: Option<&Path>, input_path: &Path) -> PathBuf {
+    match text_output {
+        Some(out) => out.with_extension("html"),
+        None => default_output_path(input_path, "html"),
     }
 }
 
@@ -130,17 +146,29 @@ fn json_placement(p: &BestRegion) -> String {
     )
 }
 
-fn json_report(best: &BestRegion, tie_break: TieBreak, output: Option<&Path>) -> String {
-    let output_field = match output {
+fn json_path(path: Option<&Path>) -> String {
+    match path {
         Some(p) => format!(r#""{}""#, p.display().to_string().replace('"', "\\\"")),
         None => "null".to_string(),
-    };
+    }
+}
+
+/// `version` stays 3: `html` is additive and the shape of every existing field
+/// is unchanged, and the number is shared with the text report's `# yield_max 3`
+/// header, which this does not touch.
+fn json_report(
+    best: &BestRegion,
+    tie_break: TieBreak,
+    output: Option<&Path>,
+    html_output: &Path,
+) -> String {
     format!(
-        r#"{{"version":3,"tiebreak":"{}","best":{},"mask_sites":{},"output":{}}}"#,
+        r#"{{"version":3,"tiebreak":"{}","best":{},"mask_sites":{},"output":{},"html":{}}}"#,
         tie_break,
         json_placement(best),
         mask_site_count(),
-        output_field,
+        json_path(output),
+        json_path(Some(html_output)),
     )
 }
 
@@ -187,17 +215,28 @@ fn run() -> Result<(), String> {
         Some(
             args.output
                 .clone()
-                .unwrap_or_else(|| default_output_path(&args.input)),
+                .unwrap_or_else(|| default_output_path(&args.input, "txt")),
         )
     };
+    let html_path = html_output_path(output_path.as_deref(), &args.input);
 
-    if let Some(out) = &output_path {
+    for out in output_path.iter().chain(std::iter::once(&html_path)) {
         if same_file(&args.input, out) {
             return Err(format!(
                 "refusing to overwrite the input file {}; choose a different output path",
                 out.display()
             ));
         }
+    }
+
+    // Only reachable by asking for the *text* report at a .html path, where the
+    // HTML report would land on top of it.
+    if output_path.as_deref() == Some(html_path.as_path()) {
+        return Err(format!(
+            "the HTML report would overwrite the text report at {}; \
+             give the text output a different extension",
+            html_path.display()
+        ));
     }
 
     // Check the size on disk first: parse() would also reject an oversized
@@ -242,17 +281,34 @@ fn run() -> Result<(), String> {
     })?;
     let report = render_report(&map, &best, tie_break);
 
+    // Text first: if the HTML write then fails, the machine-readable artifact
+    // the caller actually asked for is already on disk.
     if let Some(out) = &output_path {
         fs::write(out, &report).map_err(|e| format!("failed to write {}: {e}", out.display()))?;
     }
 
+    let html = render_html(
+        &map,
+        &best,
+        tie_break,
+        Some(&args.input.display().to_string()),
+    );
+    fs::write(&html_path, &html)
+        .map_err(|e| format!("failed to write {}: {e}", html_path.display()))?;
+
     if args.json {
-        println!("{}", json_report(&best, tie_break, output_path.as_deref()));
+        println!(
+            "{}",
+            json_report(&best, tie_break, output_path.as_deref(), &html_path)
+        );
         return Ok(());
     }
 
     if to_stdout {
         print!("{report}");
+        // stdout is the report itself and must stay pipeable, but a file
+        // appearing on disk should not be silent.
+        eprintln!("HTML report written to {}", html_path.display());
         return Ok(());
     }
 
@@ -282,6 +338,7 @@ fn run() -> Result<(), String> {
     if let Some(out) = &output_path {
         println!("Marked wafer map written to {}", out.display());
     }
+    println!("HTML report written to {}", html_path.display());
 
     Ok(())
 }
@@ -307,17 +364,43 @@ mod tests {
     #[test]
     fn derives_default_output_path() {
         assert_eq!(
-            default_output_path(Path::new("/tmp/wafer.txt")),
+            default_output_path(Path::new("/tmp/wafer.txt"), "txt"),
             PathBuf::from("/tmp/wafer_optimal.txt")
         );
         assert_eq!(
-            default_output_path(Path::new("wafer.txt")),
+            default_output_path(Path::new("wafer.txt"), "txt"),
             PathBuf::from("wafer_optimal.txt")
         );
         // No extension, and no parent component.
         assert_eq!(
-            default_output_path(Path::new("wafer")),
+            default_output_path(Path::new("wafer"), "txt"),
             PathBuf::from("wafer_optimal.txt")
+        );
+        assert_eq!(
+            default_output_path(Path::new("/tmp/wafer.txt"), "html"),
+            PathBuf::from("/tmp/wafer_optimal.html")
+        );
+    }
+
+    /// The HTML report sits beside the text report when there is one, and falls
+    /// back to the input's stem when the text report went to stdout.
+    #[test]
+    fn derives_html_output_path() {
+        assert_eq!(
+            html_output_path(Some(Path::new("out.txt")), Path::new("in.txt")),
+            PathBuf::from("out.html")
+        );
+        assert_eq!(
+            html_output_path(Some(Path::new("/tmp/r")), Path::new("in.txt")),
+            PathBuf::from("/tmp/r.html")
+        );
+        assert_eq!(
+            html_output_path(None, Path::new("/tmp/wafer.txt")),
+            PathBuf::from("/tmp/wafer_optimal.html")
+        );
+        assert_eq!(
+            html_output_path(None, Path::new("wafer")),
+            PathBuf::from("wafer_optimal.html")
         );
     }
 
@@ -364,8 +447,15 @@ mod tests {
     fn json_report_shape() {
         let map = WaferMap::parse(include_str!("../../test_wafer.txt")).unwrap();
         let best = find_best_region_with(&map, TieBreak::Grade).unwrap();
-        let json = json_report(&best, TieBreak::Grade, Some(Path::new("out.txt")));
+        let json = json_report(
+            &best,
+            TieBreak::Grade,
+            Some(Path::new("out.txt")),
+            Path::new("out.html"),
+        );
         assert!(json.contains(r#""version":3"#));
+        assert!(json.contains(r#""output":"out.txt""#));
+        assert!(json.contains(r#""html":"out.html""#));
         assert!(json.contains(r#""tiebreak":"grade""#));
         // `good` keeps its v2 meaning: every grade, not just grade 1.
         assert!(json.contains(r#""good":57"#));
