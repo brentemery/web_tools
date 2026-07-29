@@ -74,15 +74,48 @@ jobs:
       - name: End-to-end CLI check
         run: |
           cargo run --quiet -p yield_max-cli -- test_wafer.txt - > /tmp/report.txt
-          grep -q '^# good=63 defect=29 overhang=1 sites=93 yield=68.5%$' /tmp/report.txt
+          grep -q '^# good=57 (g4=0 g3=0 g2=0 g1=57) defect=36 overhang=0 sites=93 yield=61.3%$' /tmp/report.txt
 
           # Our own output must be valid input and reproduce itself exactly.
           cargo run --quiet -p yield_max-cli -- /tmp/report.txt - > /tmp/again.txt
           diff /tmp/report.txt /tmp/again.txt
 
+          # The graded objective, end to end: on tiebreak_divergent both
+          # policies capture 17 grade-4 die but choose different regions, so
+          # this fails if --tiebreak is ignored *or* if it leaks into the
+          # grade-4 count it is not supposed to affect.
+          for policy in grade total; do
+            cargo run --quiet -p yield_max-cli -- --tiebreak=$policy \
+              testdata/tiebreak_divergent.txt - > /tmp/$policy.txt
+            grep -q "tiebreak=$policy" /tmp/$policy.txt
+            grep -q 'g4=17' /tmp/$policy.txt
+          done
+          grep -q '^# yield_max 3  region=row2,col2 tiebreak=grade$' /tmp/grade.txt
+          grep -q '^# yield_max 3  region=row4,col2 tiebreak=total$' /tmp/total.txt
+
+          # A report records its policy, so re-running with no flag reproduces
+          # it rather than silently falling back to the default.
+          cargo run --quiet -p yield_max-cli -- /tmp/total.txt - > /tmp/total_again.txt
+          diff /tmp/total.txt /tmp/total_again.txt
+
+          # A version-2 report (in-region good die spelled Z) must still parse.
+          cargo run --quiet -p yield_max-cli -- testdata/legacy_z_roundtrip.txt - > /tmp/legacy.txt
+          grep -q '^# yield_max 3  region=row2,col4 tiebreak=grade$' /tmp/legacy.txt
+          if grep -q 'Z' /tmp/legacy.txt; then
+            echo "::error::version 2's Z glyph must never be emitted"
+            exit 1
+          fi
+
           # Malformed input must fail loudly rather than be reinterpreted.
           if cargo run --quiet -p yield_max-cli -- testdata/invalid/short_row.txt - 2>/dev/null; then
             echo "::error::a malformed wafer map was accepted"
+            exit 1
+          fi
+
+          # So must an unrecognized tie-break: falling back to the default
+          # would answer a different question than the one asked.
+          if cargo run --quiet -p yield_max-cli -- --tiebreak=sideways test_wafer.txt - 2>/dev/null; then
+            echo "::error::an unknown --tiebreak value was accepted"
             exit 1
           fi
 
