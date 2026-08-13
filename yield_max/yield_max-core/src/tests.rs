@@ -1412,6 +1412,82 @@ fn html_report_shows_the_headline_numbers() {
     assert!(html.contains("ties broken by <strong>grade</strong>"));
 }
 
+/// Both axes are drawn, from the solver's own labels, and only as headers --
+/// an axis cell that read as a die would misreport the wafer by 35 sites.
+#[test]
+fn html_report_draws_both_axes() {
+    let (_, _, html) = html_for(&graded_sample(), TieBreak::Grade);
+
+    assert_eq!(
+        html.matches("class=\"wafer-axis\"").count(),
+        2 * BOARD_SIZE + 1,
+        "one label per row and column, plus the empty corner"
+    );
+    assert_eq!(html.matches("role=\"columnheader\"").count(), BOARD_SIZE);
+    assert_eq!(html.matches("role=\"rowheader\"").count(), BOARD_SIZE);
+    // Axis cells are not die: the die count must be untouched.
+    assert_eq!(
+        html.matches("class=\"wafer-cell\"").count(),
+        BOARD_SIZE * BOARD_SIZE
+    );
+
+    for r in 0..BOARD_SIZE {
+        assert!(
+            html.contains(&format!(
+                "<div class=\"wafer-axis\" role=\"rowheader\">{}</div>",
+                row_label(r)
+            )),
+            "row label {} missing",
+            row_label(r)
+        );
+    }
+    for c in 0..BOARD_SIZE {
+        assert!(html.contains(&format!(
+            "<div class=\"wafer-axis\" role=\"columnheader\">{}</div>",
+            col_label(c)
+        )));
+    }
+    // The skipped letter must not appear as a row label.
+    assert!(!html.contains("role=\"rowheader\">N<"));
+    // The grid is 18 tracks wide now, or the axis column would wrap the die.
+    assert!(html.contains("grid-template-columns: repeat(18, 1fr)"));
+}
+
+/// Exactly one cell is the center, it is the one the report names, and every
+/// cell says which site it is.
+#[test]
+fn html_report_marks_the_center_die() {
+    let (_, best, html) = html_for(&graded_sample(), TieBreak::Grade);
+    let (center_row, center_col) = best.center();
+
+    assert_eq!(html.matches("data-center=\"true\"").count(), 1);
+    assert!(html.contains(&format!(
+        "centered on die <strong>{}</strong>",
+        best.center_name()
+    )));
+    assert!(html.contains(&format!(
+        "center die at <strong>{}</strong> (row {center_row}, col {center_col})",
+        best.center_name()
+    )));
+    assert!(html.contains(&format!(
+        "{} (row {center_row}, col {center_col}):",
+        best.center_name()
+    )));
+    assert!(html.contains("center die of the region"));
+
+    // Every site is named in its own label, so the picture and the notation
+    // agree cell by cell rather than only at the center.
+    for r in 0..BOARD_SIZE {
+        for c in 0..BOARD_SIZE {
+            assert!(
+                html.contains(&format!("{} (row {r}, col {c}):", cell_name(r, c))),
+                "no label for {}",
+                cell_name(r, c)
+            );
+        }
+    }
+}
+
 /// The source label is a path, and a path can contain anything.
 #[test]
 fn html_report_escapes_its_source_label() {
