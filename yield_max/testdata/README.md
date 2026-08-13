@@ -30,7 +30,8 @@ these can catch a genuine regression.
 | `edge_ring_defects` | 3,3 | 93 | 0 | 0 | Classic edge-exclusion ring; a perfect region exists inside it. |
 | `messy_whitespace` | 2,4 | 57 | 36 | 0 | CRLF, trailing spaces, and surrounding blank lines are all tolerated. |
 | `header_text` | 2,4 | 57 | 36 | 0 | Free-text metadata lines above the grid, with no `#` marker, are tolerated. |
-| `marked_roundtrip` | 2,4 | 57 | 36 | 0 | The tool's own output; re-running must reproduce it byte for byte. |
+| `marked_roundtrip` | 2,4 | 57 | 36 | 0 | The tool's own output; re-running must reproduce it byte for byte. Version 4, so it also pins the labeled grid on the parse side. |
+| `labeled_input` | 2,4 | 57 | 36 | 0 | A labeled map that is an *input*, not a report: row letters and column numbers but no region marks. Must give `test_wafer.txt`'s answer exactly, which is what pins down that labels are read and discarded rather than shifting the grid. |
 | `utf8_bom` | 2,4 | 57 | 36 | 0 | A BOM at byte 0 is stripped, not reported as a bogus 18-character row. |
 | `legacy_z_roundtrip` | 2,4 | 57 | 36 | 0 | A **version-2** report, whose in-region good die are spelled `Z`. Must still parse (as in-region grade-1 die) so an old file stays valid input; re-rendering upgrades it to `A`, so this one deliberately does *not* round-trip byte for byte. |
 
@@ -46,7 +47,7 @@ placement under the default `grade` policy.
 | `grade4_tie` | 3,4 | 6 | 27 | 13 | 25 | Three placements tie at the maximum grade-4 count (6); the grade ladder settles it on grade-3 count — (3,4) has 27 against 26 at (3,3) and 24 at (4,2). The winner is *not* the row-major-first tied placement, so the positional rule cannot explain the answer. As a bonus, (2,4) carries the most good die (75) and the most grade-3 (30) yet loses on grade 4, so the fixture also pins the grade-4 lead. |
 | `grade4_all_tie` | 1,3 | 93 | 0 | 0 | 0 | Every present die is grade 4, so all 12 legal placements have identical histograms and neither policy can separate them. Only the row-major-first rule is left. |
 | `tiebreak_divergent` | 2,2 | 17 | 16 | 10 | 21 | **The fixture that justifies `--tiebreak`.** Both policies agree on 17 grade-4 die, then diverge: `grade` picks (2,2) (16 grade-3, 64 good), `total` picks (4,2) (14 grade-3, 68 good). Carries an expectation for each. |
-| `graded_roundtrip` | 3,4 | 21 | 18 | 11 | 20 | The tool's own version-3 output, which must reproduce byte for byte on re-run. Exercises all four in-region good glyphs (`A`/`B`/`C`/`D`) on the parse side. |
+| `graded_roundtrip` | 3,4 | 21 | 18 | 11 | 20 | The tool's own version-4 output, which must reproduce byte for byte on re-run. Exercises all four in-region good glyphs (`A`/`B`/`C`/`D`) and the row labels on the parse side. |
 
 Every fixture above has zero overhang: a placement is not a legal 200mm
 region unless it lands entirely on present die, *and* keeps at least one die
@@ -74,6 +75,16 @@ error message has to name what it found rather than print it: `tab_character`,
 `comment_inside_grid.txt` mirrors `blank_line_inside.txt`: comments are a
 header/footer convention, so one interleaved with the grid means the file was
 assembled wrongly.
+
+Three cover the version-4 row labels, all for the same reason as
+`blank_line_inside.txt` — a label that disagrees with its position means the
+file's rows are not what it says they are, and stripping the label to trust
+the position would answer confidently about the wrong wafer.
+`mislabeled_row.txt` uses `N`, which is not a row letter at all (the sequence
+skips it), so the file was labeled by another scheme; `skipped_row_label.txt`
+has labels that run one row ahead from row 4 on, which is what a deleted row
+looks like; `mixed_labels.txt` labels some rows and not others, which is what
+a file assembled from pieces looks like.
 
 `blank_line_inside.txt` is the important one: a blank line in the middle of the
 grid used to be silently dropped, which shifted every later row up and produced
