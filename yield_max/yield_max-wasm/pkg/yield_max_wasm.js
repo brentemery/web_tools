@@ -99,6 +99,38 @@ export class Placement {
         wasm.__wbg_placement_free(ptr, 0);
     }
     /**
+     * Grid column of the region's center die.
+     * @returns {number}
+     */
+    get center_col() {
+        const ret = wasm.placement_center_col(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * The center die in the version-4 site notation (`"H10"`).
+     * @returns {string}
+     */
+    get center_label() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.placement_center_label(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * Grid row of the region's center die.
+     * @returns {number}
+     */
+    get center_row() {
+        const ret = wasm.placement_center_row(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @returns {number}
      */
     get col() {
@@ -149,6 +181,22 @@ export class Placement {
     get good4() {
         const ret = wasm.placement_good4(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * The region's top-left corner in the version-4 site notation (`"C5"`).
+     * @returns {string}
+     */
+    get label() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.placement_label(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
     }
     /**
      * @returns {number}
@@ -207,6 +255,18 @@ export function analyze_wafer(input, tie_break) {
 }
 
 /**
+ * The column numbers, left to right. Trivial today, but exported beside
+ * `row_labels()` so both axes come from one place.
+ * @returns {Uint32Array}
+ */
+export function col_labels() {
+    const ret = wasm.col_labels();
+    var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v1;
+}
+
+/**
  * The number of good-die grades, highest first (`[4, 3, 2, 1]`), so the UI can
  * enumerate grades without assuming how many there are.
  * @returns {Uint8Array}
@@ -255,6 +315,19 @@ export function mask_rows() {
 export function mask_sites() {
     const ret = wasm.mask_sites();
     return ret >>> 0;
+}
+
+/**
+ * The row letters, top to bottom, with `N` skipped. Exported so the web UI
+ * labels its axis from the solver's own list instead of re-deriving the
+ * skip rule and drifting.
+ * @returns {string[]}
+ */
+export function row_labels() {
+    const ret = wasm.row_labels();
+    var v1 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v1;
 }
 
 /**
@@ -313,6 +386,11 @@ function getArrayJsValueFromWasm0(ptr, len) {
     return result;
 }
 
+function getArrayU32FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getUint32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
+}
+
 function getArrayU8FromWasm0(ptr, len) {
     ptr = ptr >>> 0;
     return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
@@ -328,6 +406,14 @@ function getDataViewMemory0() {
 
 function getStringFromWasm0(ptr, len) {
     return decodeText(ptr >>> 0, len);
+}
+
+let cachedUint32ArrayMemory0 = null;
+function getUint32ArrayMemory0() {
+    if (cachedUint32ArrayMemory0 === null || cachedUint32ArrayMemory0.byteLength === 0) {
+        cachedUint32ArrayMemory0 = new Uint32Array(wasm.memory.buffer);
+    }
+    return cachedUint32ArrayMemory0;
 }
 
 let cachedUint8ArrayMemory0 = null;
@@ -420,6 +506,7 @@ function __wbg_finalize_init(instance, module) {
     wasm = instance.exports;
     wasmModule = module;
     cachedDataViewMemory0 = null;
+    cachedUint32ArrayMemory0 = null;
     cachedUint8ArrayMemory0 = null;
     wasm.__wbindgen_start();
     return wasm;

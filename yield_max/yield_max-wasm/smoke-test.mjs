@@ -5,6 +5,7 @@
 import { readFile } from 'node:fs/promises';
 import init, {
   analyze_wafer, mask_rows, mask_sites, legend, tie_breaks, grades_best_first,
+  row_labels, col_labels,
 } from './pkg/yield_max_wasm.js';
 
 const wasm = await readFile(new URL('./pkg/yield_max_wasm_bg.wasm', import.meta.url));
@@ -28,6 +29,10 @@ const b = r.best;
 for (const [name, got, want] of [
   ['row', b.row, 2],
   ['col', b.col, 4],
+  ['label', b.label, 'C5'],
+  ['center_row', b.center_row, 7],
+  ['center_col', b.center_col, 9],
+  ['center_label', b.center_label, 'H10'],
   ['good', b.good, 57],
   ['good4', b.good4, 0],
   ['good1', b.good1, 57],
@@ -39,9 +44,16 @@ for (const [name, got, want] of [
   ['mask_rows() length', mask_rows().length, 11],
   ['tie_breaks()', tie_breaks().join(','), 'grade,total'],
   ['grades_best_first()', [...grades_best_first()].join(','), '4,3,2,1'],
+  // The row letters skip 'N' on purpose; the UI draws its axis from this list.
+  ['row_labels()', row_labels().join(''), 'ABCDEFGHIJKLMOPQR'],
+  ['col_labels() first/last', `${col_labels()[0]}-${col_labels()[16]}`, '1-17'],
 ]) check(name, got, want);
 
 if (!legend().includes('D=good4')) fail('legend() must describe the graded alphabet');
+
+// The report is labeled, and its labels are read back on the round-trip below.
+if (!r.report.includes('\nO ')) fail('the marked grid must carry row labels');
+if (!r.report.includes('# 12345678901234567')) fail('the report must number its columns');
 
 // The report must round-trip: our own output is valid input.
 const report = r.report;
@@ -99,12 +111,21 @@ check('legacy row', l.best.row, 2);
 check('legacy good', l.best.good, 57);
 if (l.report.includes('Z')) fail("v2's Z must not be emitted");
 if (!l.report.includes('A')) fail('v3 must mark in-region grade-1 die as A');
+check('legacy center', l.best.center_label, 'H10');
 l.best.free(); l.free();
 
 // --- Rejections ------------------------------------------------------------
 // Malformed input must reject, not silently produce something.
 try { analyze_wafer('garbage'); fail('malformed input was accepted'); }
 catch { /* expected */ }
+
+// A row label that disagrees with its position means a row was inserted or
+// dropped; it must reject rather than be stripped and trusted positionally.
+try {
+  analyze_wafer(map.trimEnd().split('\n').slice(-17)
+    .map((line, i) => `${i === 5 ? 'Z' : 'ABCDEFGHIJKLMOPQR'[i]} ${line}`).join('\n'));
+  fail('a mislabeled row was accepted');
+} catch { /* expected */ }
 
 // A wafer with no die anywhere has no legal 200mm placement.
 try {
