@@ -1,7 +1,7 @@
 //! Core solver for the Yield Max wafer-yield problem: given a 300mm wafer
 //! map, find the highest-yielding placement of the fixed 200mm mask.
 //!
-//! # File format (version 3)
+//! # File format (version 4)
 //!
 //! A wafer map is a 17x17 grid of single characters. Each cell encodes two
 //! orthogonal facts: the state of the die, and whether the cell falls inside
@@ -36,6 +36,18 @@
 //! Free-text header lines above the grid (lot number, operator, timestamp --
 //! anything not marked with `#`) are also tolerated: any leading line that
 //! isn't 17 characters wide is dropped before the grid is parsed.
+//!
+//! # Axis labels (version 4)
+//!
+//! Version 4 names each site: rows are lettered `A`.. top to bottom with `N`
+//! skipped ([`ROW_LABELS`]), columns are numbered from 1 at the left, and a
+//! cell is `<letter><number>` -- `A1` top-left, `R17` bottom-right (see
+//! [`cell_name`]). Reports carry the column numbers as two `#` comment lines
+//! and prefix each grid row with its letter and a space; both are read back,
+//! and an unlabeled 17-wide grid (every map written before version 4) is still
+//! valid input with an unchanged meaning. A row label that disagrees with its
+//! position is an error, not something to strip: it means a row was inserted,
+//! dropped or reordered.
 
 mod html;
 pub use html::render_html;
@@ -67,6 +79,75 @@ pub const LEGEND: &str = "in-region: D=good4 C=good3 B=good2 A=good1 *=defect -=
 
 /// Number of distinct good-die grades, 1..=[`GRADES`].
 pub const GRADES: usize = 4;
+
+/// Row letters, top to bottom. `N` is skipped deliberately: beside a wafer map
+/// full of absent sites it reads as "no"/"none", and `M`/`N` are the easiest
+/// pair to confuse when a column of letters is read aloud. This array is the
+/// single source of truth for the rule -- the web UI reads it back through the
+/// WASM `row_labels()` export rather than regenerating it.
+pub const ROW_LABELS: [char; BOARD_SIZE] = [
+    'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'O', 'P', 'Q', 'R',
+];
+
+/// The letter naming grid row `row`.
+///
+/// # Panics
+/// If `row` is not a valid grid row.
+pub fn row_label(row: usize) -> char {
+    ROW_LABELS[row]
+}
+
+/// The grid row a letter names, or `None` for anything that is not a row
+/// letter -- including `N`, which is deliberately not one.
+pub fn row_index(label: char) -> Option<usize> {
+    ROW_LABELS.iter().position(|&c| c == label)
+}
+
+/// The 1-based number naming grid column `col`.
+pub fn col_label(col: usize) -> usize {
+    col + 1
+}
+
+/// The name of a site: its row letter followed by its column number, with no
+/// separator (`A1`, `H10`, `R17`). Letters and digits cannot collide, so the
+/// two parts need nothing between them.
+///
+/// # Panics
+/// If `row` is not a valid grid row.
+pub fn cell_name(row: usize, col: usize) -> String {
+    format!("{}{}", row_label(row), col_label(col))
+}
+
+/// Offset, within the mask, of its center site. The mask is odd-sized, so this
+/// is a real site rather than a point between them -- and it is an `O` in
+/// [`MASK_TEMPLATE`], so a region's center is always a die, never overhang.
+pub const MASK_CENTER: usize = MASK_SIZE / 2;
+
+/// Width of the row-label prefix (`"A "`) on a labeled grid row. It matches
+/// the width of the `"# "` that opens the column-number header lines, so
+/// column *k* sits at the same string offset in both.
+const ROW_LABEL_PREFIX: usize = 2;
+
+/// The two `#` comment lines that number the columns above a labeled grid:
+/// tens over units, because 17 columns cannot be numbered on one line of
+/// single characters. They are comments, so every existing reader (including
+/// this crate's own parser) already ignores them.
+pub fn column_header_lines() -> [String; 2] {
+    let mut tens = String::from("# ");
+    let mut units = String::from("# ");
+    for col in 0..BOARD_SIZE {
+        let n = col_label(col);
+        tens.push(if n >= 10 {
+            char::from(b'0' + (n / 10) as u8)
+        } else {
+            ' '
+        });
+        units.push(char::from(b'0' + (n % 10) as u8));
+    }
+    // Leading blanks on the tens line carry nothing; trimming keeps the report
+    // free of trailing-looking whitespace runs while the digits stay aligned.
+    [tens.trim_end().to_string(), units]
+}
 
 /// The grade (bin) of a good die, 1..=4. Higher is better; the solver's
 /// objective is to maximize the count of grade 4.
@@ -280,10 +361,34 @@ pub const MAX_INPUT_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParseError {
-    TooLarge { bytes: usize },
+    TooLarge {
+        bytes: usize,
+    },
     WrongRowCount(usize),
-    WrongRowLength { row: usize, len: usize },
-    InvalidChar { row: usize, col: usize, ch: char },
+    WrongRowLength {
+        row: usize,
+        len: usize,
+    },
+    InvalidChar {
+        row: usize,
+        col: usize,
+        ch: char,
+    },
+    /// A grid row carries a row label that is not the one its position calls
+    /// for. Trusting position over label would answer confidently about a file
+    /// that has had a row inserted, dropped or reordered.
+    BadRowLabel {
+        row: usize,
+        found: char,
+        expected: char,
+    },
+    /// Some grid rows are labeled and some are not. Labeling is all-or-nothing
+    /// per file: a partial set of labels means the file was assembled from
+    /// pieces, which is exactly when the labels are worth checking.
+    MixedRowLabels {
+        row: usize,
+        labeled: bool,
+    },
 }
 
 impl std::fmt::Display for ParseError {
@@ -310,6 +415,29 @@ impl std::fmt::Display for ParseError {
                 col + 1,
                 describe_char(*ch)
             ),
+            ParseError::BadRowLabel {
+                row,
+                found,
+                expected,
+            } => write!(
+                f,
+                "row {} is labeled {} but should be {}; a label that disagrees with its \
+                 position means a row was inserted, dropped or reordered \
+                 (row letters run {}..{}, skipping 'N')",
+                row + 1,
+                describe_char(*found),
+                describe_char(*expected),
+                ROW_LABELS[0],
+                ROW_LABELS[BOARD_SIZE - 1],
+            ),
+            ParseError::MixedRowLabels { row, labeled } => write!(
+                f,
+                "row {} is {}labeled but the row(s) before it are {}labeled; \
+                 label every grid row or none of them",
+                row + 1,
+                if *labeled { "" } else { "un" },
+                if *labeled { "un" } else { "" },
+            ),
         }
     }
 }
@@ -321,6 +449,32 @@ impl std::error::Error for ParseError {}
 /// leading header text apart from the grid, not to validate its contents.
 fn is_grid_row_width(line: &str) -> bool {
     line.trim_end().chars().count() == BOARD_SIZE
+}
+
+/// Splits a labeled grid row into its label and its cells, for a line that
+/// *looks* labeled: a single character, a space, then something of grid width.
+/// Whether the label is the right one for its position is checked separately,
+/// so a wrong label is reported as a wrong label rather than as a wrong width.
+///
+/// A space at index 1 is what makes this unambiguous: space is not in the cell
+/// alphabet, so an unlabeled row always has a glyph there. (`A`..`D` being
+/// both row letters and in-region good glyphs is why the space, not the
+/// letter, is the discriminator.)
+fn split_row_label(line: &str) -> Option<(char, &str)> {
+    let mut chars = line.chars();
+    let label = chars.next()?;
+    if chars.next()? != ' ' {
+        return None;
+    }
+    let rest = &line[label.len_utf8() + 1..];
+    is_grid_row_width(rest).then_some((label, rest))
+}
+
+/// True if `line` is a labeled grid row whose label is a real row letter. Used
+/// only to tell a labeled grid apart from free-text header lines; a labeled
+/// row with the *wrong* letter is left for the grid parser to reject by name.
+fn is_labeled_grid_row(line: &str) -> bool {
+    split_row_label(line).is_some_and(|(label, _)| row_index(label).is_some())
 }
 
 /// Describes a character for an error message. Whitespace and non-printing
@@ -382,7 +536,9 @@ impl WaferMap {
         // first grid row (wrong character, invisible character, ...) still
         // fails loudly instead of being swallowed as "header".
         while rows.first().is_some_and(|l| {
-            l.trim().is_empty() || l.trim_start().starts_with('#') || !is_grid_row_width(l)
+            l.trim().is_empty()
+                || l.trim_start().starts_with('#')
+                || !(is_grid_row_width(l) || is_labeled_grid_row(l))
         }) {
             rows.remove(0);
         }
@@ -399,10 +555,42 @@ impl WaferMap {
 
         let mut grid = Vec::with_capacity(BOARD_SIZE);
         let mut marked = Vec::with_capacity(BOARD_SIZE);
+        // Labeling is all-or-nothing per file, decided by the first row.
+        let mut labeled: Option<bool> = None;
         for (r, row) in rows.iter().enumerate() {
             // Trailing whitespace is a plausible accident in hand-edited
             // ASCII art, so tolerate it rather than failing on row length.
-            let chars: Vec<char> = row.trim_end().chars().collect();
+            let cells = match split_row_label(row) {
+                Some((label, rest)) => {
+                    if labeled == Some(false) {
+                        return Err(ParseError::MixedRowLabels {
+                            row: r,
+                            labeled: true,
+                        });
+                    }
+                    labeled = Some(true);
+                    let expected = ROW_LABELS[r];
+                    if label != expected {
+                        return Err(ParseError::BadRowLabel {
+                            row: r,
+                            found: label,
+                            expected,
+                        });
+                    }
+                    rest
+                }
+                None => {
+                    if labeled == Some(true) {
+                        return Err(ParseError::MixedRowLabels {
+                            row: r,
+                            labeled: false,
+                        });
+                    }
+                    labeled = Some(false);
+                    row
+                }
+            };
+            let chars: Vec<char> = cells.trim_end().chars().collect();
             if chars.len() != BOARD_SIZE {
                 return Err(ParseError::WrongRowLength {
                     row: r,
@@ -621,6 +809,26 @@ pub struct BestRegion {
     pub stats: RegionStats,
 }
 
+impl BestRegion {
+    /// The grid position of the region's center die. The mask is odd-sized and
+    /// its middle site is present, so this is always a real die site.
+    pub fn center(&self) -> (usize, usize) {
+        (self.row + MASK_CENTER, self.col + MASK_CENTER)
+    }
+
+    /// The center die's name in the version-4 notation, e.g. `"H10"`.
+    pub fn center_name(&self) -> String {
+        let (r, c) = self.center();
+        cell_name(r, c)
+    }
+
+    /// The name of the region's top-left corner site. Note this is the corner
+    /// of the mask's bounding box, which the mask itself does not cover.
+    pub fn name(&self) -> String {
+        cell_name(self.row, self.col)
+    }
+}
+
 /// Returns the placement covering the most **grade-4** good die, using
 /// [`TieBreak::default`] to settle ties on that count. See
 /// [`find_best_region_with`] for the full contract.
@@ -672,13 +880,18 @@ pub fn find_best_region_with(map: &WaferMap, tie_break: TieBreak) -> Option<Best
 }
 
 /// Renders `map` with the winning region's cells rewritten in the in-region
-/// alphabet (`Z`/`*`/`-`), without the `#` header. Absent cells under the
+/// alphabet (`A`..`D`/`*`/`-`), without the `#` header. Absent cells under the
 /// mask become `-` to make wasted overhang sites visible.
+///
+/// Each row is prefixed with its row letter and a space (see [`ROW_LABELS`]),
+/// aligning it under the column numbers [`column_header_lines`] emits.
 pub fn mark_region(map: &WaferMap, region: &BestRegion) -> String {
     let mask = mask();
-    let mut out = String::with_capacity(BOARD_SIZE * (BOARD_SIZE + 1));
+    let mut out = String::with_capacity(BOARD_SIZE * (BOARD_SIZE + ROW_LABEL_PREFIX + 1));
 
     for r in 0..BOARD_SIZE {
+        out.push(row_label(r));
+        out.push(' ');
         for c in 0..BOARD_SIZE {
             let in_region = r >= region.row
                 && r < region.row + MASK_SIZE
@@ -693,8 +906,9 @@ pub fn mark_region(map: &WaferMap, region: &BestRegion) -> String {
     out
 }
 
-/// Renders the full self-describing report: a three-line `#` header carrying
-/// the headline numbers and the legend, followed by the marked grid.
+/// Renders the full self-describing report: a `#` header carrying the
+/// headline numbers, the legend and the column numbers, followed by the marked
+/// grid with each row prefixed by its row letter.
 ///
 /// `tie_break` is recorded in the header because a result is not reproducible
 /// without it: two policies can pick different regions from the same wafer, so
@@ -706,12 +920,14 @@ pub fn render_report(map: &WaferMap, region: &BestRegion, tie_break: TieBreak) -
         .iter()
         .map(|g| format!("g{}={}", g.number(), s.grade(*g)))
         .collect();
+    let [tens, units] = column_header_lines();
     format!(
-        "# yield_max 3  region=row{},col{} tiebreak={}\n\
+        "# yield_max 4  region=row{},col{} center={} tiebreak={}\n\
          # good={} ({}) defect={} overhang={} sites={} yield={:.1}%\n\
-         # {}\n{}",
+         # {}\n{}\n{}\n{}",
         region.row,
         region.col,
+        region.center_name(),
         tie_break,
         s.good_total(),
         breakdown.join(" "),
@@ -720,6 +936,8 @@ pub fn render_report(map: &WaferMap, region: &BestRegion, tie_break: TieBreak) -
         s.sites(),
         s.yield_fraction() * 100.0,
         LEGEND,
+        tens,
+        units,
         mark_region(map, region),
     )
 }

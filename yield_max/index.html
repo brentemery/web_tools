@@ -122,13 +122,27 @@
         align-items: flex-start;
       }
 
+      /* 18 tracks, not 17: the first column carries the row letters and the
+         first row the column numbers. */
       .wafer-grid {
         display: grid;
-        grid-template-columns: repeat(17, 1fr);
+        grid-template-columns: repeat(18, 1fr);
         width: min(100%, 30rem);
-        aspect-ratio: 1 / 1;
         gap: 0;
         flex-shrink: 0;
+      }
+
+      /* An axis label is not a die: no fill, no outline, muted text, so the
+         header row and column cannot be misread as sites. */
+      .wafer-axis {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        aspect-ratio: 1 / 1;
+        font-family: monospace;
+        font-size: clamp(0.45rem, 1vw, 0.72rem);
+        color: var(--text-secondary);
+        user-select: none;
       }
 
       .wafer-cell {
@@ -159,6 +173,19 @@
 
       .wafer-cell[data-state='defect'] {
         background: var(--cell-defect);
+      }
+
+      /* The region's center die, marked so "where is the center" is
+         answerable by looking and not only by reading the number. A ::before
+         dot, so the cell keeps its ::after glyph. */
+      .wafer-cell[data-center='true']::before {
+        content: '';
+        position: absolute;
+        inset: 30%;
+        border-radius: 50%;
+        border: 2px solid var(--region-accent);
+        background: rgba(255, 255, 255, 0.55);
+        z-index: 2;
       }
 
       .wafer-cell:hover,
@@ -210,6 +237,12 @@
 
       .legend-swatch.defect {
         background: var(--cell-defect);
+      }
+
+      .legend-swatch.center {
+        background: transparent;
+        border: 2px solid var(--region-accent);
+        border-radius: 50%;
       }
 
       .legend-swatch.region {
@@ -374,11 +407,16 @@
       <div id="results" hidden>
         <p class="summary">
           Best 200mm region: top-left at (row <strong id="result-row"></strong>, col
-          <strong id="result-col"></strong>), with grade-4 ties broken by
+          <strong id="result-col"></strong>), centered on die
+          <strong id="result-center"></strong>, with grade-4 ties broken by
           <strong id="result-tiebreak"></strong>.
         </p>
 
         <ul class="stats">
+          <li>
+            center die at <strong id="stat-center"></strong>
+            (row <span id="stat-center-row"></span>, col <span id="stat-center-col"></span>)
+          </li>
           <li><strong id="stat-good4"></strong> grade-4 die — the figure being maximized</li>
           <li>
             <strong id="stat-good"></strong> good die in total
@@ -400,6 +438,7 @@
               <div class="legend-item"><span class="legend-swatch defect"></span>Defect die (<code>X</code>, <code>*</code> in region)</div>
               <div class="legend-item"><span class="legend-swatch"></span>Not present (<code>.</code>, <code>-</code> in region)</div>
               <div class="legend-item"><span class="legend-swatch region"></span>Selected 200mm region</div>
+              <div class="legend-item"><span class="legend-swatch center"></span>Center die of the region</div>
             </div>
           </div>
         </div>
@@ -419,6 +458,8 @@
         mask_rows,
         tie_breaks,
         grades_best_first,
+        row_labels,
+        col_labels,
       } from './yield_max-wasm/pkg/yield_max_wasm.js';
 
       // Two samples on purpose: the graded one shows what the tool now
@@ -476,6 +517,10 @@ XXXXXXXXX1111X11X
       // draws can never disagree with the mask the solver scored.
       let MASK = [];
       let MASK_SIZE = 0;
+      // Axis labels come from the solver too (the row letters skip 'N'), so
+      // the page cannot invent a second labeling scheme.
+      let ROW_LABELS = [];
+      let COL_LABELS = [];
       let lastReport = null;
 
       function showError(message) {
@@ -501,6 +546,8 @@ XXXXXXXXX1111X11X
         await init();
         MASK = mask_rows();
         MASK_SIZE = MASK.length;
+        ROW_LABELS = row_labels();
+        COL_LABELS = col_labels();
         analyzeBtn.disabled = false;
       } catch (err) {
         // Without this the page looks fine but Analyze silently does nothing.
@@ -601,13 +648,41 @@ XXXXXXXXX1111X11X
         return `Grade-${info.grade} good die`;
       }
 
+      function cellName(r, c) {
+        return `${ROW_LABELS[r]}${COL_LABELS[c]}`;
+      }
+
+      /// One axis label cell. Not a gridcell: assistive tech should walk these
+      /// as the headers they are.
+      function axisCell(text, role) {
+        const el = document.createElement('div');
+        el.className = 'wafer-axis';
+        if (role) el.setAttribute('role', role);
+        el.textContent = text;
+        return el;
+      }
+
       function renderGrid(rows, best) {
         grid.textContent = '';
+
+        // Column numbers, above the grid, with an empty corner where the two
+        // axes meet.
+        const headerRow = document.createElement('div');
+        headerRow.setAttribute('role', 'row');
+        headerRow.style.display = 'contents';
+        headerRow.appendChild(axisCell('', 'presentation'));
+        for (let c = 0; c < BOARD_SIZE; c++) {
+          headerRow.appendChild(axisCell(String(COL_LABELS[c]), 'columnheader'));
+        }
+        grid.appendChild(headerRow);
+
+        const center = best ? [best.center_row, best.center_col] : [-1, -1];
 
         for (let r = 0; r < BOARD_SIZE; r++) {
           const rowEl = document.createElement('div');
           rowEl.setAttribute('role', 'row');
           rowEl.style.display = 'contents';
+          rowEl.appendChild(axisCell(ROW_LABELS[r], 'rowheader'));
           grid.appendChild(rowEl);
 
           for (let c = 0; c < BOARD_SIZE; c++) {
@@ -624,6 +699,7 @@ XXXXXXXXX1111X11X
             if (info.grade !== undefined) cell.dataset.grade = String(info.grade);
             cell.dataset.region = String(region);
             cell.dataset.glyph = glyph;
+            if (r === center[0] && c === center[1]) cell.dataset.center = 'true';
             cell.tabIndex = 0;
 
             if (region) {
@@ -640,7 +716,8 @@ XXXXXXXXX1111X11X
                   ? ' — in region, overhang (no die)'
                   : ' — in selected region';
             }
-            const label = `Row ${r}, col ${c}: ${cellLabel(info)}${suffix}`;
+            if (r === center[0] && c === center[1]) suffix += ' — center die of the region';
+            const label = `${cellName(r, c)} (row ${r}, col ${c}): ${cellLabel(info)}${suffix}`;
             cell.setAttribute('aria-label', label);
 
             cell.addEventListener('pointerenter', () => showTooltip(cell, label));
@@ -685,6 +762,10 @@ XXXXXXXXX1111X11X
           best = {
             row: b.row,
             col: b.col,
+            label: b.label,
+            center_row: b.center_row,
+            center_col: b.center_col,
+            center_label: b.center_label,
             good: b.good,
             byGrade: { 1: b.good1, 2: b.good2, 3: b.good3, 4: b.good4 },
             defect: b.defect,
@@ -708,7 +789,11 @@ XXXXXXXXX1111X11X
 
         document.getElementById('result-row').textContent = best.row;
         document.getElementById('result-col').textContent = best.col;
+        document.getElementById('result-center').textContent = best.center_label;
         document.getElementById('result-tiebreak').textContent = tieBreak;
+        document.getElementById('stat-center').textContent = best.center_label;
+        document.getElementById('stat-center-row').textContent = best.center_row;
+        document.getElementById('stat-center-col').textContent = best.center_col;
         document.getElementById('stat-good4').textContent = best.byGrade[4];
         document.getElementById('stat-good').textContent = best.good;
 
@@ -732,7 +817,11 @@ XXXXXXXXX1111X11X
         // the output file contains, header lines excluded.
         const rows = lastReport
           .split('\n')
-          .filter((l) => l.trim().length > 0 && !l.trimStart().startsWith('#'));
+          .filter((l) => l.trim().length > 0 && !l.trimStart().startsWith('#'))
+          // Version 4 prefixes each row with its letter and a space. Strip it
+          // here rather than in the grid renderer, which draws the axis from
+          // ROW_LABELS and so must not depend on what the text carried.
+          .map((l) => (l.length === BOARD_SIZE + 2 && l[1] === ' ' ? l.slice(2) : l));
         renderGrid(rows, best);
 
         if (warningText) showWarning(warningText);

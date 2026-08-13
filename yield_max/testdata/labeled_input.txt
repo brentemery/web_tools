@@ -1,0 +1,25 @@
+# fixture: labeled_input
+# test_wafer.txt with version-4 row labels and column numbers, but no region
+# marks -- i.e. a labeled map that is an input rather than a report. It must
+# give exactly test_wafer.txt's answer, which is what pins down that the
+# labels are read and discarded rather than shifting the grid.
+# expect: row=2 col=4 good=57 defect=36 overhang=0
+#          11111111
+# 12345678901234567
+A .....1111111.....
+B ...XX111111XXX...
+C ..X11X111X1X111..
+D .XXX1111111X111X.
+E .XXXX1111XX11X1X.
+F XXXXX1X111111XX1X
+G XXXXXX1111111X1XX
+H X1X111X1X1X11X1XX
+I XXX1XXXXXXX111XXX
+J 1XX1XXX1X11X11XX1
+K XXXXXXXXX1111X11X
+L .11XXXXX11111X11.
+M .X1XXX1X11111XXX.
+O ..1XX1XXXXX1111..
+P ...XXXXXXXXXXX...
+Q ....X11111X1X....
+R .......XXXX......

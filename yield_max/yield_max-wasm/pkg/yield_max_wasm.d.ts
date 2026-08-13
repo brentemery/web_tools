@@ -30,6 +30,18 @@ export class Placement {
     private constructor();
     free(): void;
     [Symbol.dispose](): void;
+    /**
+     * Grid column of the region's center die.
+     */
+    readonly center_col: number;
+    /**
+     * The center die in the version-4 site notation (`"H10"`).
+     */
+    readonly center_label: string;
+    /**
+     * Grid row of the region's center die.
+     */
+    readonly center_row: number;
     readonly col: number;
     readonly defect: number;
     /**
@@ -44,6 +56,10 @@ export class Placement {
      * Grade-4 good die -- the figure the solver maximizes.
      */
     readonly good4: number;
+    /**
+     * The region's top-left corner in the version-4 site notation (`"C5"`).
+     */
+    readonly label: string;
     readonly overhang: number;
     readonly row: number;
     readonly sites: number;
@@ -63,6 +79,12 @@ export class Placement {
  * silent fallback would answer a different question than the one asked.
  */
 export function analyze_wafer(input: string, tie_break?: string | null): AnalysisResult;
+
+/**
+ * The column numbers, left to right. Trivial today, but exported beside
+ * `row_labels()` so both axes come from one place.
+ */
+export function col_labels(): Uint32Array;
 
 /**
  * The number of good-die grades, highest first (`[4, 3, 2, 1]`), so the UI can
@@ -88,6 +110,13 @@ export function mask_rows(): string[];
 export function mask_sites(): number;
 
 /**
+ * The row letters, top to bottom, with `N` skipped. Exported so the web UI
+ * labels its axis from the solver's own list instead of re-deriving the
+ * skip rule and drifting.
+ */
+export function row_labels(): string[];
+
+/**
  * The legal `tie_break` values, so the UI builds its control from the solver's
  * own list instead of hard-coding one that could drift.
  */
@@ -104,10 +133,14 @@ export interface InitOutput {
     readonly analysisresult_tiebreak: (a: number) => [number, number];
     readonly analysisresult_warning: (a: number) => [number, number];
     readonly analyze_wafer: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly col_labels: () => [number, number];
     readonly grades_best_first: () => [number, number];
     readonly legend: () => [number, number];
     readonly mask_rows: () => [number, number];
     readonly mask_sites: () => number;
+    readonly placement_center_col: (a: number) => number;
+    readonly placement_center_label: (a: number) => [number, number];
+    readonly placement_center_row: (a: number) => number;
     readonly placement_col: (a: number) => number;
     readonly placement_defect: (a: number) => number;
     readonly placement_good: (a: number) => number;
@@ -115,10 +148,12 @@ export interface InitOutput {
     readonly placement_good2: (a: number) => number;
     readonly placement_good3: (a: number) => number;
     readonly placement_good4: (a: number) => number;
+    readonly placement_label: (a: number) => [number, number];
     readonly placement_overhang: (a: number) => number;
     readonly placement_row: (a: number) => number;
     readonly placement_sites: (a: number) => number;
     readonly placement_yield_fraction: (a: number) => number;
+    readonly row_labels: () => [number, number];
     readonly tie_breaks: () => [number, number];
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
