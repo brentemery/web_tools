@@ -25,6 +25,8 @@ network or other files to render.
 
 The region chosen is the one covering the most grade-4 ('4') die. Good die
 are graded 1..4; all four count as good, but grade 4 is what is maximized.
+The marked map carries row letters (A.., skipping 'N') and column numbers
+(1..17), and the result names the region's center die in that notation.
 
 Options:
   --tiebreak=P   How to settle a tie on the grade-4 count (default: grade):
@@ -133,10 +135,18 @@ fn json_placement(p: &BestRegion) -> String {
         .iter()
         .map(|g| format!(r#""{}":{}"#, g.number(), p.stats.grade(*g)))
         .collect();
+    // `row`/`col` keep their 0-based meaning; `label` and `center` are the
+    // version-4 names for the same positions, carried alongside rather than
+    // instead, so no consumer has to learn the notation to do arithmetic.
+    let (center_row, center_col) = p.center();
     format!(
-        r#"{{"row":{},"col":{},"good":{},"good_by_grade":{{{}}},"defect":{},"overhang":{},"sites":{},"yield":{:.4}}}"#,
+        r#"{{"row":{},"col":{},"label":"{}","center":{{"row":{},"col":{},"label":"{}"}},"good":{},"good_by_grade":{{{}}},"defect":{},"overhang":{},"sites":{},"yield":{:.4}}}"#,
         p.row,
         p.col,
+        p.name(),
+        center_row,
+        center_col,
+        p.center_name(),
         p.stats.good_total(),
         by_grade.join(","),
         p.stats.defect,
@@ -153,9 +163,9 @@ fn json_path(path: Option<&Path>) -> String {
     }
 }
 
-/// `version` stays 3: `html` is additive and the shape of every existing field
-/// is unchanged, and the number is shared with the text report's `# yield_max 3`
-/// header, which this does not touch.
+/// `version` moves to 4 with the text format: the grid now carries row and
+/// column labels, so a consumer that reads the ASCII art needs to know. The
+/// number is shared with the text report's `# yield_max 4` header.
 fn json_report(
     best: &BestRegion,
     tie_break: TieBreak,
@@ -163,7 +173,7 @@ fn json_report(
     html_output: &Path,
 ) -> String {
     format!(
-        r#"{{"version":3,"tiebreak":"{}","best":{},"mask_sites":{},"output":{},"html":{}}}"#,
+        r#"{{"version":4,"tiebreak":"{}","best":{},"mask_sites":{},"output":{},"html":{}}}"#,
         tie_break,
         json_placement(best),
         mask_site_count(),
@@ -317,6 +327,13 @@ fn run() -> Result<(), String> {
         "Best 200mm region: top-left at (row {}, col {})",
         best.row, best.col
     );
+    let (center_row, center_col) = best.center();
+    println!(
+        "  center die at {} (row {}, col {})",
+        best.center_name(),
+        center_row,
+        center_col
+    );
     println!(
         "  {} grade-4 die (the figure being maximized)",
         s.grade(Grade::G4)
@@ -453,7 +470,7 @@ mod tests {
             Some(Path::new("out.txt")),
             Path::new("out.html"),
         );
-        assert!(json.contains(r#""version":3"#));
+        assert!(json.contains(r#""version":4"#));
         assert!(json.contains(r#""output":"out.txt""#));
         assert!(json.contains(r#""html":"out.html""#));
         assert!(json.contains(r#""tiebreak":"grade""#));
@@ -462,8 +479,25 @@ mod tests {
         assert!(json.contains(r#""good_by_grade":{"4":0,"3":0,"2":0,"1":57}"#));
         assert!(json.contains(r#""overhang":0"#));
         assert!(json.contains(r#""mask_sites":93"#));
-        // Exactly one placement is reported: the winner.
-        assert_eq!(json.matches(r#""row":"#).count(), 1);
+        // Exactly one placement is reported: the winner, plus its center.
+        assert_eq!(json.matches(r#""row":"#).count(), 2);
+    }
+
+    /// The center die is reported in both coordinate systems: the 0-based
+    /// indices a program wants, and the label a person reads off the grid.
+    #[test]
+    fn json_names_the_region_and_its_center_die() {
+        let map = WaferMap::parse(include_str!("../../test_wafer.txt")).unwrap();
+        let best = find_best_region_with(&map, TieBreak::Grade).unwrap();
+        let json = json_placement(&best);
+        assert!(
+            json.contains(r#""row":2,"col":4,"label":"C5""#),
+            "got: {json}"
+        );
+        assert!(
+            json.contains(r#""center":{"row":7,"col":9,"label":"H10"}"#),
+            "got: {json}"
+        );
     }
 
     /// The JSON breakdown must add up to the `good` total it sits beside, on a
