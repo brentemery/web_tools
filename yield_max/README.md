@@ -291,7 +291,8 @@ usage: yield_max [options] <input_path> [output_path]
 
   --tiebreak=P   Settle a tie on the grade-4 count: 'grade' (default) or
                  'total'. See "The objective" above.
-  --json         Machine-readable JSON on stdout.
+  --json         Machine-readable JSON on stdout. Needs a real output path:
+                 '-' would put the report on stdout too, so the pair is an error.
   -h, --help     Show help.
 ```
 

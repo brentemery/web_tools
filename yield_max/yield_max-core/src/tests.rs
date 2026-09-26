@@ -1208,6 +1208,46 @@ fn flags_marks_that_match_no_legal_placement() {
     assert!(!remarked.has_inconsistent_marks());
 }
 
+/// Marks that form a perfect mask footprint at a placement the solver would
+/// never pick are just as inconsistent as a stray mark: the next run replaces
+/// them, so they must be flagged. They used to pass because only the
+/// footprint's shape was checked, not the placement's legality.
+#[test]
+fn flags_marks_at_an_illegal_placement() {
+    // Overhang: on the sample wafer the mask at (0, 0) hangs off onto absent
+    // sites.
+    let map = WaferMap::parse(SAMPLE).unwrap();
+    let overhanging = map.evaluate(0, 0);
+    assert!(
+        overhanging.stats.overhang > 0,
+        "precondition: (0, 0) overhangs"
+    );
+    let marked = WaferMap::parse(&mark_region(&map, &overhanging)).unwrap();
+    // The footprint is still recoverable -- an old or hand-edited report is
+    // worth reading back -- but it is not a legal region.
+    assert_eq!(marked.marked_region().map(|r| (r.row, r.col)), Some((0, 0)));
+    assert!(
+        marked.has_inconsistent_marks(),
+        "an overhanging footprint must be flagged"
+    );
+
+    // No overhang, but no edge clearance either: on an all-good wafer the
+    // mask at (0, 0) covers die in row 0, which border the grid edge.
+    let all_good = WaferMap::parse(&uniform('1')).unwrap();
+    let edge = all_good.evaluate(0, 0);
+    assert_eq!(edge.stats.overhang, 0, "precondition: no overhang");
+    let marked = WaferMap::parse(&mark_region(&all_good, &edge)).unwrap();
+    assert!(
+        marked.has_inconsistent_marks(),
+        "a footprint touching the wafer edge must be flagged"
+    );
+
+    // A legal placement is consistent, even when it is not the winner.
+    let legal = all_good.evaluate(1, 1);
+    let marked = WaferMap::parse(&mark_region(&all_good, &legal)).unwrap();
+    assert!(!marked.has_inconsistent_marks());
+}
+
 /// CR-only (classic Mac) endings collapse to a single line. We cannot know
 /// the user's intent, but we must not silently misread the file.
 #[test]
