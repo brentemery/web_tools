@@ -16,7 +16,8 @@
 //!   renderer can be tested by comparison.
 
 use crate::{
-    mask, render_report, BestRegion, Die, Grade, TieBreak, WaferMap, BOARD_SIZE, MASK_SIZE,
+    cell_name, col_label, mask, render_report, row_label, BestRegion, Die, Grade, TieBreak,
+    WaferMap, BOARD_SIZE, MASK_SIZE,
 };
 
 /// The page's styles, inlined. Ported from `index.html`'s results panel: the
@@ -122,13 +123,26 @@ pre {
   align-items: flex-start;
 }
 
+/* 18 tracks, not 17: the first column carries the row letters and the first
+   row the column numbers. */
 .wafer-grid {
   display: grid;
-  grid-template-columns: repeat(17, 1fr);
+  grid-template-columns: repeat(18, 1fr);
   width: min(100%, 30rem);
-  aspect-ratio: 1 / 1;
   gap: 0;
   flex-shrink: 0;
+}
+
+/* An axis label is not a die: no fill, no outline, muted text, so the header
+   row and column cannot be misread as sites. */
+.wafer-axis {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1 / 1;
+  font-family: monospace;
+  font-size: clamp(0.45rem, 1vw, 0.72rem);
+  color: var(--text-secondary);
 }
 
 .wafer-cell {
@@ -159,6 +173,19 @@ pre {
 
 .wafer-cell[data-state='defect'] {
   background: var(--cell-defect);
+}
+
+/* The region's center die, marked so the center is answerable by looking and
+   not only by reading the number. A ::before dot, so the cell keeps its
+   ::after glyph. */
+.wafer-cell[data-center='true']::before {
+  content: '';
+  position: absolute;
+  inset: 30%;
+  border-radius: 50%;
+  border: 2px solid var(--region-accent);
+  background: rgba(255, 255, 255, 0.55);
+  z-index: 2;
 }
 
 .wafer-cell:hover {
@@ -209,6 +236,12 @@ pre {
 .legend-swatch.region {
   background: transparent;
   border: 3px solid var(--region-accent);
+}
+
+.legend-swatch.center {
+  background: transparent;
+  border: 2px solid var(--region-accent);
+  border-radius: 50%;
 }
 
 .stats {
@@ -279,7 +312,7 @@ fn state_name(die: Die) -> &'static str {
 
 /// The per-cell description, used for both `title` (a tooltip without needing
 /// script) and `aria-label`. Same wording as the web page's cell labels.
-fn cell_label(die: Die, row: usize, col: usize, in_region: bool) -> String {
+fn cell_label(die: Die, row: usize, col: usize, in_region: bool, is_center: bool) -> String {
     let what = match die {
         Die::Good(g) => format!("Grade-{} good die", g.number()),
         Die::Defect => "Defect die".to_string(),
@@ -290,7 +323,17 @@ fn cell_label(die: Die, row: usize, col: usize, in_region: bool) -> String {
         (true, Die::Absent) => " — in region, overhang (no die)",
         (true, _) => " — in selected region",
     };
-    format!("Row {row}, col {col}: {what}{suffix}")
+    let center = if is_center {
+        " — center die of the region"
+    } else {
+        ""
+    };
+    // The site name leads, since that is how the result is reported; the
+    // 0-based indices follow for anyone matching against JSON.
+    format!(
+        "{} (row {row}, col {col}): {what}{suffix}{center}",
+        cell_name(row, col)
+    )
 }
 
 /// Whether `(row, col)` falls under the mask placed at `region`.
@@ -344,15 +387,24 @@ pub fn render_html(
     }
     out.push_str("</header>\n<main>\n");
 
+    let (center_row, center_col) = region.center();
     out.push_str(&format!(
         "<p class=\"summary\">Best 200mm region: top-left at (row <strong>{}</strong>, \
-         col <strong>{}</strong>), with grade-4 ties broken by <strong>{}</strong>.</p>\n",
-        region.row, region.col, tie_break,
+         col <strong>{}</strong>), centered on die <strong>{}</strong>, with grade-4 ties \
+         broken by <strong>{}</strong>.</p>\n",
+        region.row,
+        region.col,
+        region.center_name(),
+        tie_break,
     ));
 
     // Same list, same order as the web page's stats panel: the number being
     // maximized first, then the totals it was chosen from.
     out.push_str("<ul class=\"stats\">\n");
+    out.push_str(&format!(
+        "<li>center die at <strong>{}</strong> (row {center_row}, col {center_col})</li>\n",
+        region.center_name(),
+    ));
     out.push_str(&format!(
         "<li><strong>{}</strong> grade-4 die — the figure being maximized</li>\n",
         s.grade(Grade::G4),
@@ -386,10 +438,26 @@ pub fn render_html(
         "<div class=\"wafer-grid\" role=\"grid\" \
          aria-label=\"Wafer die map with selected 200mm region\">\n",
     );
+    // Column numbers, above the grid, with an empty corner where the two axes
+    // meet. The labels come from the same functions the text report uses.
+    out.push_str("<div role=\"row\" style=\"display: contents\">\n");
+    out.push_str("<div class=\"wafer-axis\" role=\"presentation\"></div>\n");
+    for c in 0..BOARD_SIZE {
+        out.push_str(&format!(
+            "<div class=\"wafer-axis\" role=\"columnheader\">{}</div>\n",
+            col_label(c)
+        ));
+    }
+    out.push_str("</div>\n");
+
     for r in 0..BOARD_SIZE {
-        // `display: contents` keeps one 17x17 CSS grid while the row wrappers
+        // `display: contents` keeps one 18x18 CSS grid while the row wrappers
         // give assistive tech real rows to walk.
         out.push_str("<div role=\"row\" style=\"display: contents\">\n");
+        out.push_str(&format!(
+            "<div class=\"wafer-axis\" role=\"rowheader\">{}</div>\n",
+            row_label(r)
+        ));
         for c in 0..BOARD_SIZE {
             let die = map.get(r, c);
             let region_cell = in_region(region, r, c);
@@ -402,6 +470,9 @@ pub fn render_html(
                 out.push_str(&format!(" data-grade=\"{}\"", g.number()));
             }
             out.push_str(&format!(" data-region=\"{region_cell}\""));
+            if (r, c) == (center_row, center_col) {
+                out.push_str(" data-center=\"true\"");
+            }
             // Every glyph in the v3 alphabet is markup-safe, but escape anyway
             // so that stays true by construction rather than by luck.
             out.push_str(&format!(
@@ -430,7 +501,13 @@ pub fn render_html(
                 }
             }
 
-            let label = escape_html(&cell_label(die, r, c, region_cell));
+            let label = escape_html(&cell_label(
+                die,
+                r,
+                c,
+                region_cell,
+                (r, c) == (center_row, center_col),
+            ));
             out.push_str(&format!(
                 " title=\"{label}\" aria-label=\"{label}\"></div>\n"
             ));
@@ -467,6 +544,10 @@ pub fn render_html(
     out.push_str(
         "<div class=\"legend-item\"><span class=\"legend-swatch region\"></span>\
          Selected 200mm region</div>\n",
+    );
+    out.push_str(
+        "<div class=\"legend-item\"><span class=\"legend-swatch center\"></span>\
+         Center die of the region</div>\n",
     );
     out.push_str("</div>\n</div>\n</div>\n");
 

@@ -40,6 +40,34 @@ fn uniform(ch: char) -> String {
         .join("\n")
 }
 
+/// The cell rows of a rendered grid, with each row's label checked and
+/// stripped. Every test that reads `mark_region`'s output positionally goes
+/// through this, so the labels are asserted once, here, rather than being
+/// worked around in a dozen places.
+fn cell_rows(marked: &str) -> Vec<Vec<char>> {
+    let rows: Vec<&str> = marked.lines().collect();
+    assert_eq!(rows.len(), BOARD_SIZE, "one line per grid row");
+    rows.iter()
+        .enumerate()
+        .map(|(r, line)| {
+            let mut chars = line.chars();
+            assert_eq!(chars.next(), Some(row_label(r)), "row {r} label");
+            assert_eq!(chars.next(), Some(' '), "row {r} label separator");
+            chars.collect()
+        })
+        .collect()
+}
+
+/// A rendered grid with its row labels removed, for tests that care about the
+/// glyphs and not the layout.
+fn cells_only(marked: &str) -> String {
+    cell_rows(marked)
+        .into_iter()
+        .map(|row| row.into_iter().collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[test]
 fn parses_sample_wafer() {
     let map = WaferMap::parse(SAMPLE).expect("valid sample should parse");
@@ -235,7 +263,7 @@ fn mark_region_rewrites_exactly_the_mask_footprint() {
     let map = WaferMap::parse(SAMPLE).unwrap();
     let best = find_best_region(&map).unwrap();
     let marked = mark_region(&map, &best);
-    let marked_rows: Vec<Vec<char>> = marked.lines().map(|l| l.chars().collect()).collect();
+    let marked_rows = cell_rows(&marked);
     let mask = mask();
 
     for r in 0..BOARD_SIZE {
@@ -266,7 +294,7 @@ fn marked_output_uses_every_glyph_in_the_alphabet() {
         region.stats.overhang, 1,
         "fixture assumption: (0,5) has overhang"
     );
-    let marked = mark_region(&map, &region);
+    let marked = cells_only(&mark_region(&map, &region));
     for ch in ['1', '2', '3', '4', 'X', '.', 'A', 'B', 'C', 'D', '*', '-'] {
         assert!(marked.contains(ch), "missing glyph {ch:?} in:\n{marked}");
     }
@@ -281,13 +309,19 @@ fn marked_output_uses_every_glyph_in_the_alphabet() {
 fn report_header_carries_the_headline_numbers() {
     let map = WaferMap::parse(SAMPLE).unwrap();
     let report = render_report(&map, &find_best_region(&map).unwrap(), TieBreak::Grade);
-    let header: Vec<&str> = report.lines().take(3).collect();
-    assert_eq!(header[0], "# yield_max 3  region=row2,col4 tiebreak=grade");
+    let header: Vec<&str> = report.lines().take(5).collect();
+    assert_eq!(
+        header[0],
+        "# yield_max 4  region=row2,col4 center=H10 tiebreak=grade"
+    );
     assert_eq!(
         header[1],
         "# good=57 (g4=0 g3=0 g2=0 g1=57) defect=36 overhang=0 sites=93 yield=61.3%"
     );
     assert!(header[2].contains("D=good4"));
+    // The column numbers, tens over units, aligned with the grid below them.
+    assert_eq!(header[3], "#          11111111");
+    assert_eq!(header[4], "# 12345678901234567");
 }
 
 /// The whole point of the lossless alphabet: our own output parses back to
@@ -382,10 +416,14 @@ fn legacy_z_parses_as_an_in_region_grade_1_die() {
     assert_eq!(Die::Good(Grade::G1).to_char(true), 'A');
 
     // A whole v2 report parses, and re-rendering it yields the v3 alphabet
-    // with the same region and the same die states.
+    // with the same region and the same die states. The v2 grid is unlabeled,
+    // so this also covers a pre-version-4 file staying valid input.
     let map = WaferMap::parse(SAMPLE).unwrap();
     let best = find_best_region(&map).unwrap();
-    let v2_report = render_report(&map, &best, TieBreak::Grade).replace('A', "Z");
+    let v2_report = format!(
+        "# yield_max 2  region=row2,col4\n{}",
+        cells_only(&mark_region(&map, &best)).replace('A', "Z")
+    );
     let reparsed = WaferMap::parse(&v2_report).expect("a v2 report must parse");
     assert_eq!(
         reparsed.marked_region().map(|r| (r.row, r.col)),
@@ -831,6 +869,200 @@ fn legacy_v2_fixture_parses_and_upgrades_to_the_v3_alphabet() {
     assert!(v3.ends_with(&report), "must render as the v3 fixture body");
 }
 
+// ---------------------------------------------------------------------------
+// Version-4 axis labels and the region's center die.
+// ---------------------------------------------------------------------------
+
+/// The labeling rule in one place: 17 distinct ascending letters starting at
+/// `A`, with `N` deliberately absent, and `row_index` its exact inverse.
+#[test]
+fn row_labels_skip_n_and_round_trip() {
+    assert_eq!(ROW_LABELS.len(), BOARD_SIZE);
+    assert_eq!(ROW_LABELS[0], 'A');
+    assert!(!ROW_LABELS.contains(&'N'), "'N' is skipped on purpose");
+    assert!(
+        ROW_LABELS.windows(2).all(|w| w[0] < w[1]),
+        "labels must ascend, so reading order matches grid order"
+    );
+
+    for (r, &label) in ROW_LABELS.iter().enumerate() {
+        assert_eq!(row_label(r), label);
+        assert_eq!(row_index(label), Some(r));
+    }
+    // Anything that is not a row letter -- notably the skipped one -- must not
+    // resolve to a row, or a mislabeled file would parse as a valid one.
+    for ch in ['N', 'S', 'a', '1', '.', '*', ' '] {
+        assert_eq!(row_index(ch), None, "{ch:?} must not name a row");
+    }
+}
+
+/// The documented corners and the sample's center, spelled out, so the
+/// notation cannot drift from the README without a test failing.
+#[test]
+fn cell_names_match_the_documented_corners() {
+    assert_eq!(cell_name(0, 0), "A1");
+    assert_eq!(cell_name(BOARD_SIZE - 1, BOARD_SIZE - 1), "R17");
+    assert_eq!(cell_name(7, 9), "H10");
+    // Column numbers are 1-based; row 12 is 'M' and row 13 is 'O'.
+    assert_eq!(cell_name(12, 0), "M1");
+    assert_eq!(cell_name(13, 0), "O1");
+}
+
+/// The center must be a real die site (not overhang), must sit at the middle
+/// of the mask in both axes, and must be the site the report names.
+#[test]
+fn center_die_is_a_mask_site_at_the_middle_of_the_region() {
+    assert!(
+        mask()[MASK_CENTER][MASK_CENTER],
+        "the mask's middle site must be present, or a region has no center die"
+    );
+
+    let map = WaferMap::parse(SAMPLE).unwrap();
+    let best = find_best_region(&map).unwrap();
+    assert_eq!(best.center(), (best.row + 5, best.col + 5));
+    assert_eq!(best.center(), (7, 9));
+    assert_eq!(best.center_name(), "H10");
+    assert_eq!(best.name(), cell_name(best.row, best.col));
+
+    // The center is inside the region, whatever the placement.
+    for row in 0..=(BOARD_SIZE - MASK_SIZE) {
+        for col in 0..=(BOARD_SIZE - MASK_SIZE) {
+            let (r, c) = map.evaluate(row, col).center();
+            assert!(r >= row && r < row + MASK_SIZE && c >= col && c < col + MASK_SIZE);
+        }
+    }
+}
+
+/// The column-number header lines have to line up with the grid rows beneath
+/// them, which is the only reason they are two lines and the only thing that
+/// makes them readable.
+#[test]
+fn column_headers_align_with_the_grid_rows() {
+    let map = WaferMap::parse(SAMPLE).unwrap();
+    let best = find_best_region(&map).unwrap();
+    let report = render_report(&map, &best, TieBreak::Grade);
+    let lines: Vec<&str> = report.lines().collect();
+
+    let [tens, units] = column_header_lines();
+    let grid_row = lines[lines.len() - BOARD_SIZE];
+    assert_eq!(units.chars().count(), grid_row.chars().count());
+
+    for col in 0..BOARD_SIZE {
+        let at = |s: &str, i: usize| s.chars().nth(i).unwrap();
+        let digits: String = [at(&tens, col + 2), at(&units, col + 2)]
+            .into_iter()
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        assert_eq!(
+            digits.parse::<usize>().unwrap(),
+            col_label(col),
+            "column {col} header"
+        );
+    }
+}
+
+/// A labeled report is valid input to the tool, byte for byte -- the same
+/// re-enterability property version 3 had, now with the labels in the loop.
+#[test]
+fn labeled_output_round_trips_through_the_parser() {
+    let map = WaferMap::parse(&graded_sample()).unwrap();
+    let best = find_best_region(&map).unwrap();
+    let report = render_report(&map, &best, TieBreak::Grade);
+    assert!(report.contains("\nO "), "row labels must skip N");
+
+    let reparsed = WaferMap::parse(&report).expect("a labeled report must parse");
+    for r in 0..BOARD_SIZE {
+        for c in 0..BOARD_SIZE {
+            assert_eq!(reparsed.get(r, c), map.get(r, c), "die state at ({r},{c})");
+        }
+    }
+    assert_eq!(reparsed.marked_region(), Some(best));
+    assert_eq!(
+        render_report(&reparsed, &best, TieBreak::Grade),
+        report,
+        "re-running on a labeled report must reproduce it"
+    );
+}
+
+/// Every map written before version 4 is unlabeled. It stays valid, and means
+/// exactly what it meant -- the labels are presentation, not content.
+#[test]
+fn unlabeled_input_still_parses_unchanged() {
+    let labeled: String = grid_only()
+        .lines()
+        .enumerate()
+        .map(|(r, line)| format!("{} {line}", row_label(r)))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let plain = WaferMap::parse(&grid_only()).unwrap();
+    let with_labels = WaferMap::parse(&labeled).expect("a labeled grid must parse");
+    assert_eq!(plain, with_labels);
+    assert_eq!(find_best_region(&plain), find_best_region(&with_labels));
+}
+
+/// A label that disagrees with its position means a row was inserted, dropped
+/// or reordered. Stripping it and trusting the position would answer
+/// confidently about the wrong wafer.
+#[test]
+fn rejects_mislabeled_and_mixed_label_rows() {
+    let rows: Vec<String> = grid_only()
+        .lines()
+        .enumerate()
+        .map(|(r, line)| format!("{} {line}", row_label(r)))
+        .collect();
+
+    let mut swapped = rows.clone();
+    swapped.swap(3, 4);
+    let err = WaferMap::parse(&swapped.join("\n")).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            ParseError::BadRowLabel {
+                row: 3,
+                found: 'E',
+                expected: 'D'
+            }
+        ),
+        "got {err:?}"
+    );
+    assert!(err.to_string().contains("row 4"), "1-based: {err}");
+
+    // 'N' is not a row letter, so a file using it is labeled by another
+    // scheme entirely.
+    let mut with_n = rows.clone();
+    with_n[13] = format!("N {}", &rows[13][2..]);
+    assert!(matches!(
+        WaferMap::parse(&with_n.join("\n")).unwrap_err(),
+        ParseError::BadRowLabel {
+            row: 13,
+            found: 'N',
+            ..
+        }
+    ));
+
+    // Labeling is all-or-nothing, in either direction.
+    let mut partly = rows.clone();
+    partly[8] = partly[8][2..].to_string();
+    assert!(matches!(
+        WaferMap::parse(&partly.join("\n")).unwrap_err(),
+        ParseError::MixedRowLabels {
+            row: 8,
+            labeled: false
+        }
+    ));
+
+    let mut mostly_plain: Vec<String> = grid_only().lines().map(str::to_string).collect();
+    mostly_plain[2] = format!("C {}", mostly_plain[2]);
+    assert!(matches!(
+        WaferMap::parse(&mostly_plain.join("\n")).unwrap_err(),
+        ParseError::MixedRowLabels {
+            row: 2,
+            labeled: true
+        }
+    ));
+}
+
 #[test]
 fn every_invalid_fixture_is_rejected() {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../testdata/invalid");
@@ -1098,7 +1330,7 @@ fn html_report_draws_every_cell_and_marks_only_the_region() {
 fn html_report_grid_matches_the_marked_text() {
     for tie_break in TieBreak::ALL {
         let (map, best, html) = html_for(&graded_sample(), tie_break);
-        let marked: String = mark_region(&map, &best).replace('\n', "");
+        let marked: String = cells_only(&mark_region(&map, &best)).replace('\n', "");
         assert_eq!(glyphs_in(&html), marked, "{tie_break}");
     }
 }
@@ -1109,7 +1341,7 @@ fn html_report_grid_matches_the_marked_text() {
 #[test]
 fn html_report_grade_attributes_match_the_glyphs() {
     let (map, best, html) = html_for(&graded_sample(), TieBreak::Grade);
-    let marked = mark_region(&map, &best);
+    let marked = cells_only(&mark_region(&map, &best));
 
     let mut good = 0;
     for g in Grade::BEST_FIRST {
@@ -1178,6 +1410,82 @@ fn html_report_shows_the_headline_numbers() {
         assert!(html.contains(&format!("<li>{} grade-{}</li>", s.grade(g), g.number())));
     }
     assert!(html.contains("ties broken by <strong>grade</strong>"));
+}
+
+/// Both axes are drawn, from the solver's own labels, and only as headers --
+/// an axis cell that read as a die would misreport the wafer by 35 sites.
+#[test]
+fn html_report_draws_both_axes() {
+    let (_, _, html) = html_for(&graded_sample(), TieBreak::Grade);
+
+    assert_eq!(
+        html.matches("class=\"wafer-axis\"").count(),
+        2 * BOARD_SIZE + 1,
+        "one label per row and column, plus the empty corner"
+    );
+    assert_eq!(html.matches("role=\"columnheader\"").count(), BOARD_SIZE);
+    assert_eq!(html.matches("role=\"rowheader\"").count(), BOARD_SIZE);
+    // Axis cells are not die: the die count must be untouched.
+    assert_eq!(
+        html.matches("class=\"wafer-cell\"").count(),
+        BOARD_SIZE * BOARD_SIZE
+    );
+
+    for r in 0..BOARD_SIZE {
+        assert!(
+            html.contains(&format!(
+                "<div class=\"wafer-axis\" role=\"rowheader\">{}</div>",
+                row_label(r)
+            )),
+            "row label {} missing",
+            row_label(r)
+        );
+    }
+    for c in 0..BOARD_SIZE {
+        assert!(html.contains(&format!(
+            "<div class=\"wafer-axis\" role=\"columnheader\">{}</div>",
+            col_label(c)
+        )));
+    }
+    // The skipped letter must not appear as a row label.
+    assert!(!html.contains("role=\"rowheader\">N<"));
+    // The grid is 18 tracks wide now, or the axis column would wrap the die.
+    assert!(html.contains("grid-template-columns: repeat(18, 1fr)"));
+}
+
+/// Exactly one cell is the center, it is the one the report names, and every
+/// cell says which site it is.
+#[test]
+fn html_report_marks_the_center_die() {
+    let (_, best, html) = html_for(&graded_sample(), TieBreak::Grade);
+    let (center_row, center_col) = best.center();
+
+    assert_eq!(html.matches("data-center=\"true\"").count(), 1);
+    assert!(html.contains(&format!(
+        "centered on die <strong>{}</strong>",
+        best.center_name()
+    )));
+    assert!(html.contains(&format!(
+        "center die at <strong>{}</strong> (row {center_row}, col {center_col})",
+        best.center_name()
+    )));
+    assert!(html.contains(&format!(
+        "{} (row {center_row}, col {center_col}):",
+        best.center_name()
+    )));
+    assert!(html.contains("center die of the region"));
+
+    // Every site is named in its own label, so the picture and the notation
+    // agree cell by cell rather than only at the center.
+    for r in 0..BOARD_SIZE {
+        for c in 0..BOARD_SIZE {
+            assert!(
+                html.contains(&format!("{} (row {r}, col {c}):", cell_name(r, c))),
+                "no label for {}",
+                cell_name(r, c)
+            );
+        }
+    }
 }
 
 /// The source label is a path, and a path can contain anything.

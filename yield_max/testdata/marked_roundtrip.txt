@@ -1,27 +1,29 @@
 # fixture: marked_roundtrip
 # The tool's own output for test_wafer.txt. Re-running on this file must
 # reproduce it byte for byte below the note lines, and marked_region() must
-# recover row=2 col=4. This is the version-3 spelling; see
-# legacy_z_roundtrip.txt for the version-2 file it replaced, which must still
-# parse.
+# recover row=2 col=4. This is the version-4 spelling -- labeled rows, column
+# numbers, and the center die H10; see legacy_z_roundtrip.txt for the
+# unlabeled version-2 file it replaced, which must still parse.
 # expect: row=2 col=4 good=57 defect=36 overhang=0
-# yield_max 3  region=row2,col4 tiebreak=grade
+# yield_max 4  region=row2,col4 center=H10 tiebreak=grade
 # good=57 (g4=0 g3=0 g2=0 g1=57) defect=36 overhang=0 sites=93 yield=61.3%
 # in-region: D=good4 C=good3 B=good2 A=good1 *=defect -=overhang   outside: 4/3/2/1=good X=defect .=absent
-.....1111111.....
-...XX111111XXX...
-..X11X1AA*A*111..
-.XXX11AAAAA*A11X.
-.XXXXAAAA**AA*1X.
-XXXX*A*AAAAAA**1X
-XXXX**AAAAAAA*AXX
-X1X1AA*A*A*AA*AXX
-XXX1*******AAA*XX
-1XX1X**A*AA*AAXX1
-XXXXX****AAAA*11X
-.11XXX**AAAAAX11.
-.X1XXX1XAAA11XXX.
-..1XX1XXXXX1111..
-...XXXXXXXXXXX...
-....X11111X1X....
-.......XXXX......
+#          11111111
+# 12345678901234567
+A .....1111111.....
+B ...XX111111XXX...
+C ..X11X1AA*A*111..
+D .XXX11AAAAA*A11X.
+E .XXXXAAAA**AA*1X.
+F XXXX*A*AAAAAA**1X
+G XXXX**AAAAAAA*AXX
+H X1X1AA*A*A*AA*AXX
+I XXX1*******AAA*XX
+J 1XX1X**A*AA*AAXX1
+K XXXXX****AAAA*11X
+L .11XXX**AAAAAX11.
+M .X1XXX1XAAA11XXX.
+O ..1XX1XXXXX1111..
+P ...XXXXXXXXXXX...
+Q ....X11111X1X....
+R .......XXXX......

@@ -1,0 +1,21 @@
+# invalid fixture: mislabeled_row
+# expect: BadRowLabel -- row 14 is labeled 'N', which is not a row letter at
+# all: the sequence deliberately skips it, so a file using it was written
+# against a different labeling scheme and cannot be trusted positionally.
+A .....1111111.....
+B ...XX111111XXX...
+C ..X11X111X1X111..
+D .XXX1111111X111X.
+E .XXXX1111XX11X1X.
+F XXXXX1X111111XX1X
+G XXXXXX1111111X1XX
+H X1X111X1X1X11X1XX
+I XXX1XXXXXXX111XXX
+J 1XX1XXX1X11X11XX1
+K XXXXXXXXX1111X11X
+L .11XXXXX11111X11.
+M .X1XXX1X11111XXX.
+N ..1XX1XXXXX1111..
+P ...XXXXXXXXXXX...
+Q ....X11111X1X....
+R .......XXXX......

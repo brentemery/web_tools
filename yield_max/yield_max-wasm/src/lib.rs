@@ -1,14 +1,14 @@
 use wasm_bindgen::prelude::*;
 
 use yield_max_core::{
-    find_best_region_with, mask_site_count, render_report, BestRegion, Grade, TieBreak, WaferMap,
-    LEGEND, MASK_TEMPLATE,
+    col_label, find_best_region_with, mask_site_count, render_report, BestRegion, Grade, TieBreak,
+    WaferMap, BOARD_SIZE, LEGEND, MASK_TEMPLATE, ROW_LABELS,
 };
 
 /// Scored placement of the 200mm region, carrying the full breakdown of why
 /// it scored as it did rather than just the good-die count.
 #[wasm_bindgen]
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct Placement {
     row: usize,
     col: usize,
@@ -19,6 +19,13 @@ pub struct Placement {
     defect: usize,
     overhang: usize,
     yield_fraction: f64,
+    /// The region's center die, kept as a resolved position rather than
+    /// recomputed in JS, so the UI cannot disagree with the report about
+    /// where the center is.
+    center_row: usize,
+    center_col: usize,
+    label: String,
+    center_label: String,
 }
 
 #[wasm_bindgen]
@@ -61,6 +68,30 @@ impl Placement {
         self.good[0]
     }
 
+    /// The region's top-left corner in the version-4 site notation (`"C5"`).
+    #[wasm_bindgen(getter)]
+    pub fn label(&self) -> String {
+        self.label.clone()
+    }
+
+    /// Grid row of the region's center die.
+    #[wasm_bindgen(getter)]
+    pub fn center_row(&self) -> usize {
+        self.center_row
+    }
+
+    /// Grid column of the region's center die.
+    #[wasm_bindgen(getter)]
+    pub fn center_col(&self) -> usize {
+        self.center_col
+    }
+
+    /// The center die in the version-4 site notation (`"H10"`).
+    #[wasm_bindgen(getter)]
+    pub fn center_label(&self) -> String {
+        self.center_label.clone()
+    }
+
     #[wasm_bindgen(getter)]
     pub fn defect(&self) -> usize {
         self.defect
@@ -85,6 +116,7 @@ impl Placement {
 
 impl From<&BestRegion> for Placement {
     fn from(p: &BestRegion) -> Self {
+        let (center_row, center_col) = p.center();
         Placement {
             row: p.row,
             col: p.col,
@@ -92,6 +124,10 @@ impl From<&BestRegion> for Placement {
             defect: p.stats.defect,
             overhang: p.stats.overhang,
             yield_fraction: p.stats.yield_fraction(),
+            center_row,
+            center_col,
+            label: p.name(),
+            center_label: p.center_name(),
         }
     }
 }
@@ -108,7 +144,7 @@ pub struct AnalysisResult {
 impl AnalysisResult {
     #[wasm_bindgen(getter)]
     pub fn best(&self) -> Placement {
-        self.best
+        self.best.clone()
     }
 
     /// A non-fatal advisory, or the empty string. Currently set when the
@@ -205,4 +241,19 @@ pub fn mask_sites() -> usize {
 #[wasm_bindgen]
 pub fn legend() -> String {
     LEGEND.to_string()
+}
+
+/// The row letters, top to bottom, with `N` skipped. Exported so the web UI
+/// labels its axis from the solver's own list instead of re-deriving the
+/// skip rule and drifting.
+#[wasm_bindgen]
+pub fn row_labels() -> Vec<String> {
+    ROW_LABELS.iter().map(|c| c.to_string()).collect()
+}
+
+/// The column numbers, left to right. Trivial today, but exported beside
+/// `row_labels()` so both axes come from one place.
+#[wasm_bindgen]
+pub fn col_labels() -> Vec<usize> {
+    (0..BOARD_SIZE).map(col_label).collect()
 }

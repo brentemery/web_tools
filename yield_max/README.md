@@ -72,11 +72,13 @@ Worked example -- `testdata/tiebreak_divergent.txt` has two placements tied at
 ```
 $ yield_max --tiebreak=grade testdata/tiebreak_divergent.txt
 Best 200mm region: top-left at (row 2, col 2)
+  center die at H8 (row 7, col 7)
   17 grade-4 die (the figure being maximized)
   64 good die (17 grade-4, 16 grade-3, 10 grade-2, 21 grade-1), ...
 
 $ yield_max --tiebreak=total testdata/tiebreak_divergent.txt
 Best 200mm region: top-left at (row 4, col 2)
+  center die at J8 (row 9, col 7)
   17 grade-4 die (the figure being maximized)
   68 good die (17 grade-4, 14 grade-3, 15 grade-2, 22 grade-1), ...
 ```
@@ -93,7 +95,45 @@ the original objective -- so no pre-existing wafer map changes its answer. The
 test suite asserts this directly (`both_policies_agree_on_every_ungraded_fixture`)
 and every fixture predating grades still carries its original expectation.
 
-## Output format (version 3)
+## Reading the grid: row letters and column numbers
+
+Version 4 gives every die site a name, because "row 7, col 9" is easy to lose
+your place in when you are counting characters in a 17x17 block of ASCII art,
+and because a result that names a site can be checked against the picture
+without counting at all.
+
+- **Columns** are numbered `1`..`17`, left to right.
+- **Rows** are lettered top to bottom, starting at `A`, **skipping `N`**:
+  `A B C D E F G H I J K L M O P Q R`. `N` is left out on purpose: beside a
+  wafer map full of absent sites it reads as "no"/"none", and `M`/`N` are the
+  easiest pair to confuse when a column of letters is read aloud.
+- A site is named **`<letter><number>`** with no separator: `A1` is the
+  top-left site, `R17` the bottom-right. Letters and digits cannot collide, so
+  nothing is needed between them.
+
+The labels are **additive**. The 0-based `row=`/`col=` numbers stay exactly
+where they were — in the report header, in JSON, in the wasm API — so nothing
+that does arithmetic on a position has to learn the notation, and a report
+still round-trips. Error messages keep their existing 1-based row/col rule.
+
+`ROW_LABELS` in `yield_max-core` is the single source of truth for the skip;
+the web UI and the HTML report both read it back rather than regenerating it.
+
+### The center die
+
+The result names the **center die** of the winning region: the site at the
+middle of the 11x11 mask, offset (5, 5) from its top-left corner. The mask's
+middle site is present (`O`), so the center is always a real, addressable die
+rather than a point between them — which is why it is reported instead of the
+region's centroid, a quantity the mask's up-down asymmetry puts off-lattice
+anyway.
+
+For the sample answer (row 2, col 4) the center die is grid (7, 9), i.e.
+**H10**. It appears in the report header (`center=H10`), in the CLI summary,
+in JSON, in the HTML report and in the web UI, where it is also ringed on the
+grid so it can be found by looking.
+
+## Output format (version 4)
 
 The original spec marked every die in the winning region with a single `Z`.
 That answered "where" but not "why": a region of 93 sites that captures 57 good
@@ -119,8 +159,9 @@ grade sort together in the same relative order.
 
 Version 2 had a single in-region good glyph, `Z`. It is **still accepted on
 input** — read as an in-region grade-1 die — so a report from an older run
-remains valid input, but it is never emitted: version 3 writes `A`. Feeding a
-version-2 report back in therefore upgrades it to the version-3 alphabet rather
+remains valid input, but it is never emitted: version 3 onward writes `A`.
+Feeding a version-2 report back in therefore upgrades it to the current
+alphabet (and gains axis labels) rather
 than reproducing it verbatim; see `testdata/legacy_z_roundtrip.txt`.
 
 `-` (overhang) marks a region cell that falls outside the wafer's present-die
@@ -136,29 +177,36 @@ fragile to case-folding. `#` is reserved as the comment sigil and so is not
 used for a die state.
 
 Lines beginning with `#` are comments, ignored on input. Output carries a
-three-line header so the file is self-describing and greppable:
+five-line header so the file is self-describing and greppable — the headline
+numbers, the legend, and the column numbers as two lines (tens over units,
+because 17 columns cannot be numbered on one line of single characters). Each
+grid row is prefixed with its row letter and a space, which is exactly the
+width of the `# ` opening the header lines, so column *k* sits at the same
+offset in the header and in every row:
 
 ```
-# yield_max 3  region=row3,col4 tiebreak=grade
+# yield_max 4  region=row3,col4 center=I10 tiebreak=grade
 # good=70 (g4=21 g3=18 g2=11 g1=20) defect=23 overhang=0 sites=93 yield=75.3%
 # in-region: D=good4 C=good3 B=good2 A=good1 *=defect -=overhang   outside: 4/3/2/1=good X=defect .=absent
-.....23X2214.....
-...3X33114X343...
-..X331X4113XX13..
-.3X43X1D*D*C1413.
-.X3433*CCDB*B3XX.
-12X13AB*AAB**D212
-432XAD*DD*BBAAC14
-X23XDD*AA*CD*CD4X
-1X3XA*A*AACCADD34
-1343DAAACB***C*X2
-X2142CDD*DAC*B3X1
-.1X42*BACACB**X2.
-.32XX3BDDCCDC33X.
-..323324CDAX333..
-...2X121X3X414...
-....32133142X....
-.......3124......
+#          11111111
+# 12345678901234567
+A .....23X2214.....
+B ...3X33114X343...
+C ..X331X4113XX13..
+D .3X43X1D*D*C1413.
+E .X3433*CCDB*B3XX.
+F 12X13AB*AAB**D212
+G 432XAD*DD*BBAAC14
+H X23XDD*AA*CD*CD4X
+I 1X3XA*A*AACCADD34
+J 1343DAAACB***C*X2
+K X2142CDD*DAC*B3X1
+L .1X42*BACACB**X2.
+M .32XX3BDDCCDC33X.
+O ..323324CDAX333..
+P ...2X121X3X414...
+Q ....32133142X....
+R .......3124......
 ```
 
 `good` is every grade summed — the same quantity version 2 called `good` — with
@@ -192,7 +240,8 @@ Two cases get special handling because the naive behavior misleads:
 
 **Free-text header lines** above the grid -- lot number, slot, operator,
 timestamp, anything with no `#` marker -- are tolerated too: any leading line
-that isn't exactly 17 characters wide is dropped before the grid is parsed.
+that is neither exactly 17 characters wide nor a labeled grid row (a row
+letter, a space, then 17 characters) is dropped before the grid is parsed.
 A leading line that does happen to be 17 characters wide is left alone and
 runs through normal validation instead, since at that width it can't be told
 apart from a genuinely malformed first grid row.
@@ -225,8 +274,15 @@ silently.
   — dropping it would shift every later row and yield a confidently wrong
   answer. Blank lines around the grid, CRLF endings, and trailing spaces are
   all tolerated.
+- A **row label that disagrees with its position** is an error for the same
+  reason: it means a row was inserted, dropped or reordered, and stripping the
+  label to trust the position would answer confidently about a different
+  wafer. So is a **partially labeled** grid — labeling is all-or-nothing per
+  file. An unlabeled 17-wide grid is not an error at all: every map written
+  before version 4 is one, and it means exactly what it always did.
 - Row and column numbers in **error messages** are 1-based, matching a text
-  editor. Row/col in the output header and JSON are 0-based grid indices.
+  editor. Row/col in the output header and JSON are 0-based grid indices; the
+  `A1`-style labels are carried alongside them, never instead.
 
 ## Usage
 
@@ -267,8 +323,10 @@ Two properties the renderer holds to, both tested:
 `--json` is the interface for other programs — don't parse the ASCII art:
 
 ```json
-{"version":3,"tiebreak":"grade",
- "best":{"row":2,"col":4,"good":57,
+{"version":4,"tiebreak":"grade",
+ "best":{"row":2,"col":4,"label":"C5",
+         "center":{"row":7,"col":9,"label":"H10"},
+         "good":57,
          "good_by_grade":{"4":0,"3":0,"2":0,"1":57},
          "defect":36,"overhang":0,"sites":93,"yield":0.6129},
  "mask_sites":93,"output":"wafer_optimal.txt",
@@ -277,10 +335,11 @@ Two properties the renderer holds to, both tested:
 
 `good` keeps its version-2 meaning (all grades summed), so a consumer reading
 it is not silently handed a subset; `good_by_grade` is additive alongside it.
-`version` bumping to 3 is the tripwire for anything that needs to care.
-`html` was added without a further bump: it is purely additive, no existing
-field changed shape, and the number is shared with the text report's
-`# yield_max 3` header, which is unchanged.
+`label` and `center` are likewise additive — `row`/`col` are unchanged in
+shape and meaning, so nothing has to adopt the notation. `version` bumping to
+4 is the tripwire for anything that needs to care; it moved because the grid
+*text* changed shape (labels), and it is shared with the text report's
+`# yield_max 4` header.
 
 If no placement anywhere satisfies both the overhang and edge-clearance
 constraints, the tool exits with an error instead (nonzero exit code, message
@@ -292,13 +351,15 @@ fallback to the default.
 
 - `yield_max-core/` — dependency-free solver and file format. Single source of
   truth for the mask shape (`MASK_TEMPLATE`), the cell alphabet (`Die`,
-  `Grade`), and the tie-break policies (`TieBreak`). Both output faces live
+  `Grade`), the axis labels (`ROW_LABELS`, `cell_name`), and the tie-break
+  policies (`TieBreak`). Both output faces live
   here too: `render_report` (text) and `render_html`, so the numbers, glyphs
   and legend cannot differ between them.
 - `yield_max-cli/` — command-line frontend.
 - `yield_max-wasm/` — `wasm-bindgen` wrapper; also re-exports the mask via
-  `mask_rows()`, the grades via `grades_best_first()`, and the policies via
-  `tie_breaks()`, so the web UI cannot drift out of sync with the solver.
+  `mask_rows()`, the grades via `grades_best_first()`, the policies via
+  `tie_breaks()` and the axis labels via `row_labels()`/`col_labels()`, so the
+  web UI cannot drift out of sync with the solver.
 - `index.html` — web frontend (file upload, visualization, report download).
 
 ```bash

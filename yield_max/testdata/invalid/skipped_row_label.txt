@@ -1,0 +1,22 @@
+# invalid fixture: skipped_row_label
+# expect: BadRowLabel -- from row 4 on, every label names the row above it,
+# which is what a deleted row looks like once the remaining labels are read
+# in order. Trusting position over label would silently analyze a wafer whose
+# rows do not mean what the file says they mean.
+A .....1111111.....
+B ...XX111111XXX...
+C ..X11X111X1X111..
+E .XXX1111111X111X.
+F .XXXX1111XX11X1X.
+G XXXXX1X111111XX1X
+H XXXXXX1111111X1XX
+I X1X111X1X1X11X1XX
+J XXX1XXXXXXX111XXX
+K 1XX1XXX1X11X11XX1
+L XXXXXXXXX1111X11X
+M .11XXXXX11111X11.
+O .X1XXX1X11111XXX.
+P ..1XX1XXXXX1111..
+Q ...XXXXXXXXXXX...
+R ....X11111X1X....
+S .......XXXX......
