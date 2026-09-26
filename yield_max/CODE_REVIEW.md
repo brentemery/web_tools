@@ -1,9 +1,11 @@
 # Code Review — yield_max (commit ad5b067)
 
-> **Status: resolved in the follow-up commit.** Findings 1–10 have all been
-> addressed by the version-2 output format work. See `README.md` for the new
-> format and the rationale. This document is kept as the record of the review;
-> the findings below describe the code *as reviewed*, not as it now stands.
+> **Status: historical.** This reviews version 1 of the tool (commit
+> `ad5b067`), before graded die, the edge-clearance rule, axis labels and the
+> HTML report. Findings 1–10 were all addressed by the version-2 output format
+> work, and the tool has since moved to format version 4; `README.md` is the
+> current spec. This document is kept as the record of that review: the
+> findings below describe the code *as reviewed*, not as it now stands.
 
 
 Reviewed: `yield_max-core`, `yield_max-cli`, `yield_max-wasm`, `index.html`, fixtures.

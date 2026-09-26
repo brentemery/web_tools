@@ -1,8 +1,9 @@
 use wasm_bindgen::prelude::*;
 
 use yield_max_core::{
-    col_label, find_best_region_with, mask_site_count, render_report, BestRegion, Grade, TieBreak,
-    TieBreakConflict, TieBreakSource, WaferMap, BOARD_SIZE, LEGEND, MASK_TEMPLATE, ROW_LABELS,
+    col_label, find_best_region_with, mask_site_count, render_report, BestRegion, Die, Grade,
+    TieBreak, TieBreakConflict, TieBreakSource, WaferMap, BOARD_SIZE, LEGEND, MASK_TEMPLATE,
+    MAX_INPUT_BYTES, ROW_LABELS,
 };
 
 /// Scored placement of the 200mm region, carrying the full breakdown of why
@@ -286,4 +287,43 @@ pub fn row_labels() -> Vec<String> {
 #[wasm_bindgen]
 pub fn col_labels() -> Vec<usize> {
     (0..BOARD_SIZE).map(col_label).collect()
+}
+
+/// Rows and columns on the 300mm grid.
+#[wasm_bindgen]
+pub fn board_size() -> usize {
+    BOARD_SIZE
+}
+
+/// The largest input the parser accepts, so the page can refuse a file by its
+/// size before reading it, against the same limit.
+#[wasm_bindgen]
+pub fn max_input_bytes() -> usize {
+    MAX_INPUT_BYTES
+}
+
+/// True if grid site (`r`, `c`) falls under the region whose top-left corner
+/// is at (`top`, `left`). The solver's own coverage rule, so the outline the
+/// page draws is the region that was scored.
+#[wasm_bindgen]
+pub fn mask_covers(top: usize, left: usize, r: usize, c: usize) -> bool {
+    yield_max_core::mask_covers(top, left, r, c)
+}
+
+/// The glyph a report uses for a die: `state` is `"good"`, `"defect"` or
+/// `"absent"`, `grade` (1..=4) matters only for a good die, and `in_region`
+/// picks the marked spelling. Exported so the page's legend and glyph lookup
+/// come from the alphabet the report is written in.
+#[wasm_bindgen]
+pub fn glyph(state: &str, grade: u8, in_region: bool) -> Result<String, JsValue> {
+    let die = match state {
+        "good" => Die::Good(
+            Grade::from_number(grade)
+                .ok_or_else(|| JsValue::from_str(&format!("no grade {grade}")))?,
+        ),
+        "defect" => Die::Defect,
+        "absent" => Die::Absent,
+        other => return Err(JsValue::from_str(&format!("unknown die state {other:?}"))),
+    };
+    Ok(die.to_char(in_region).to_string())
 }

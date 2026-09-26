@@ -264,7 +264,7 @@ fn mark_region_rewrites_exactly_the_mask_footprint() {
     let best = find_best_region(&map).unwrap();
     let marked = mark_region(&map, &best);
     let marked_rows = cell_rows(&marked);
-    let mask = mask();
+    let mask = &*MASK;
 
     for r in 0..BOARD_SIZE {
         for c in 0..BOARD_SIZE {
@@ -913,7 +913,7 @@ fn cell_names_match_the_documented_corners() {
 #[test]
 fn center_die_is_a_mask_site_at_the_middle_of_the_region() {
     assert!(
-        mask()[MASK_CENTER][MASK_CENTER],
+        MASK[MASK_CENTER][MASK_CENTER],
         "the mask's middle site must be present, or a region has no center die"
     );
 
@@ -1599,4 +1599,104 @@ fn an_unknown_header_tie_break_needs_an_explicit_request() {
         map.resolve_tie_break(Some(TieBreak::Grade)),
         Ok((TieBreak::Grade, TieBreakSource::Requested))
     );
+}
+
+/// Only the report's own `# yield_max` header line records a policy. A user's
+/// comment that merely mentions `tiebreak=` used to be read as one: an
+/// unknown value failed the parse, and a known one silently changed the policy.
+#[test]
+fn only_the_report_header_line_records_a_tie_break() {
+    let noted = format!("# tried tiebreak=foo last week\n{SAMPLE}");
+    let map = WaferMap::parse(&noted).unwrap();
+    assert_eq!(map.header_tie_break(), None);
+    assert_eq!(
+        map.resolve_tie_break(None),
+        Ok((TieBreak::default(), TieBreakSource::Default))
+    );
+
+    let noted = format!("# compare with tiebreak=total\n{SAMPLE}");
+    assert_eq!(WaferMap::parse(&noted).unwrap().header_tie_break(), None);
+
+    // The report's own header line still counts, with or without a space
+    // after the `#`.
+    for header in [
+        "# yield_max 4  tiebreak=total",
+        "#yield_max 4 tiebreak=total",
+    ] {
+        let map = WaferMap::parse(&format!("{header}\n{SAMPLE}")).unwrap();
+        assert_eq!(
+            map.header_tie_break(),
+            Some(&Ok(TieBreak::Total)),
+            "{header}"
+        );
+    }
+}
+
+/// A first grid row of the wrong width looks like free-text header by width
+/// alone, so it used to be dropped and reported as "found 16 rows" about a
+/// file that visibly has 17. It is now named as the broken row.
+#[test]
+fn a_malformed_first_row_is_reported_as_row_1() {
+    let grid = grid_only();
+    let rows: Vec<&str> = grid.lines().collect();
+    let with_first = |first: &str| {
+        std::iter::once(first)
+            .chain(rows[1..].iter().copied())
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    let short = &rows[0][..BOARD_SIZE - 1];
+    assert_eq!(
+        WaferMap::parse(&with_first(short)),
+        Err(ParseError::WrongRowLength { row: 0, len: 16 })
+    );
+    let long = format!("{}1", rows[0]);
+    assert_eq!(
+        WaferMap::parse(&with_first(&long)),
+        Err(ParseError::WrongRowLength { row: 0, len: 18 })
+    );
+    // The same with the version-4 row label in front of it.
+    let labeled = format!("A {short}");
+    assert_eq!(
+        WaferMap::parse(&with_first(&labeled)),
+        Err(ParseError::WrongRowLength { row: 0, len: 16 })
+    );
+    assert!(WaferMap::parse(&with_first(short))
+        .unwrap_err()
+        .to_string()
+        .starts_with("row 1 has length 16"));
+
+    // Real header text above a grid that is genuinely a row short is still a
+    // row-count problem: "03" is not made of cell glyphs.
+    let text = format!("LOT 7\n03\n{}", rows[1..].join("\n"));
+    assert_eq!(WaferMap::parse(&text), Err(ParseError::WrongRowCount(16)));
+}
+
+/// Free-text header lines are still dropped: the error improvement above must
+/// not turn the fixture's real header into a grid row.
+#[test]
+fn header_text_is_still_dropped_above_a_full_grid() {
+    let map = WaferMap::parse(SAMPLE).unwrap();
+    let best = find_best_region(&map).unwrap();
+    assert_eq!((best.row, best.col), (2, 4));
+}
+
+/// `mask_covers` is the one coverage rule; every placement covers exactly
+/// the mask's sites, and nothing off the grid.
+#[test]
+fn mask_covers_matches_the_mask_everywhere() {
+    for top in 0..=(BOARD_SIZE - MASK_SIZE) {
+        for left in 0..=(BOARD_SIZE - MASK_SIZE) {
+            let covered = (0..BOARD_SIZE)
+                .flat_map(|r| (0..BOARD_SIZE).map(move |c| (r, c)))
+                .filter(|&(r, c)| mask_covers(top, left, r, c))
+                .count();
+            assert_eq!(covered, mask_site_count(), "placement ({top}, {left})");
+        }
+    }
+    // Out-of-range coordinates are simply not covered, never a panic.
+    assert!(!mask_covers(0, 0, usize::MAX, 5));
+    assert!(!mask_covers(usize::MAX, usize::MAX, 3, 3));
+    assert_eq!(mask_site_count(), 93);
 }

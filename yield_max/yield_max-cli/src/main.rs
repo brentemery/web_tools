@@ -1,11 +1,12 @@
 use std::env;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use yield_max_core::{
     find_best_region_with, mask_site_count, render_html, render_report, BestRegion, Grade,
-    TieBreak, TieBreakConflict, TieBreakSource, WaferMap, MAX_INPUT_BYTES,
+    TieBreak, TieBreakConflict, TieBreakSource, WaferMap, BOARD_SIZE, MAX_INPUT_BYTES,
 };
 
 const USAGE: &str = "\
@@ -126,6 +127,39 @@ fn html_output_path(text_output: Option<&Path>, input_path: &Path) -> PathBuf {
         Some(out) => out.with_extension("html"),
         None => default_output_path(input_path, "html"),
     }
+}
+
+/// True if writing the HTML report to `html` would overwrite the text report at
+/// `text`. `html` is `text` with its extension replaced, so they collide when
+/// that extension already was `html` -- in any case, since `out.HTML` and
+/// `out.html` are one file on the case-insensitive filesystems macOS and
+/// Windows use by default.
+fn html_would_overwrite(text: &Path, html: &Path) -> bool {
+    text == html
+        || text.with_extension("") == html.with_extension("")
+            && text
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("html"))
+}
+
+/// Reads a wafer map, refusing anything over [`MAX_INPUT_BYTES`] without
+/// holding more than that in memory. parse() would also reject an oversized
+/// input, but only after it had all been read -- and a pipe or `/dev/stdin`
+/// has no size to check up front, so bounding the read itself is what covers
+/// every kind of input.
+fn read_bounded(reader: impl Read) -> Result<String, String> {
+    let mut bytes = Vec::new();
+    reader
+        .take(MAX_INPUT_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() > MAX_INPUT_BYTES {
+        return Err(format!(
+            "input is larger than the {MAX_INPUT_BYTES} byte limit; \
+             a wafer map is {BOARD_SIZE} rows of {BOARD_SIZE} characters"
+        ));
+    }
+    String::from_utf8(bytes).map_err(|_| "stream did not contain valid UTF-8".to_string())
 }
 
 /// True if both paths resolve to the same existing file. Used to avoid
@@ -273,7 +307,10 @@ fn run() -> Result<(), String> {
 
     // Only reachable by asking for the *text* report at a .html path, where the
     // HTML report would land on top of it.
-    if output_path.as_deref() == Some(html_path.as_path()) {
+    if output_path
+        .as_deref()
+        .is_some_and(|out| html_would_overwrite(out, &html_path))
+    {
         return Err(format!(
             "the HTML report would overwrite the text report at {}; \
              give the text output a different extension",
@@ -281,21 +318,9 @@ fn run() -> Result<(), String> {
         ));
     }
 
-    // Check the size on disk first: parse() would also reject an oversized
-    // input, but only after read_to_string has pulled the whole thing into
-    // memory. A 200MB file should cost us a stat, not 200MB of RSS.
-    if let Ok(meta) = fs::metadata(&args.input) {
-        if meta.is_file() && meta.len() > MAX_INPUT_BYTES as u64 {
-            return Err(format!(
-                "{} is {} bytes, larger than the {MAX_INPUT_BYTES} byte limit; \
-                 a wafer map is 17 rows of 17 characters",
-                args.input.display(),
-                meta.len()
-            ));
-        }
-    }
-
-    let input = fs::read_to_string(&args.input)
+    let input = fs::File::open(&args.input)
+        .map_err(|e| e.to_string())
+        .and_then(read_bounded)
         .map_err(|e| format!("failed to read {}: {e}", args.input.display()))?;
 
     let map = WaferMap::parse(&input)
@@ -484,6 +509,42 @@ mod tests {
         assert!(args(&["a", "b", "c"])
             .unwrap_err()
             .contains("unexpected extra argument"));
+    }
+
+    /// The HTML report is the text path with a `.html` extension, so a text
+    /// path already ending in `.html` -- in any case -- would be overwritten.
+    /// Only the exact spelling was caught, and `out.HTML` is the same file as
+    /// `out.html` on macOS and Windows.
+    #[test]
+    fn detects_the_html_report_landing_on_the_text_one() {
+        for text in ["out.html", "out.HTML", "out.Html", "/tmp/r/out.hTmL"] {
+            let text = Path::new(text);
+            let html = html_output_path(Some(text), Path::new("in.txt"));
+            assert!(html_would_overwrite(text, &html), "{}", text.display());
+        }
+        for text in ["out.txt", "out", "out.htm", "out.html.txt"] {
+            let text = Path::new(text);
+            let html = html_output_path(Some(text), Path::new("in.txt"));
+            assert!(!html_would_overwrite(text, &html), "{}", text.display());
+        }
+    }
+
+    /// The size limit bounds the read itself, so it holds for a pipe or
+    /// stdin, which have no size to check up front. `repeat` never ends: an
+    /// unbounded read would never return.
+    #[test]
+    fn input_reads_are_bounded() {
+        let err = read_bounded(std::io::repeat(b'1')).unwrap_err();
+        assert!(err.contains("byte limit"), "got: {err}");
+
+        let exact = vec![b'.'; MAX_INPUT_BYTES];
+        assert_eq!(read_bounded(&exact[..]).unwrap().len(), MAX_INPUT_BYTES);
+        let over = vec![b'.'; MAX_INPUT_BYTES + 1];
+        assert!(read_bounded(&over[..]).is_err());
+
+        assert!(read_bounded(&b"\xff\xfe"[..])
+            .unwrap_err()
+            .contains("UTF-8"));
     }
 
     #[test]

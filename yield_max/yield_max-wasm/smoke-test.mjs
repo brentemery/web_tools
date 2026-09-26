@@ -5,7 +5,7 @@
 import { readFile } from 'node:fs/promises';
 import init, {
   analyze_wafer, mask_rows, mask_sites, legend, tie_breaks, grades_best_first,
-  row_labels, col_labels,
+  row_labels, col_labels, board_size, max_input_bytes, mask_covers, glyph,
 } from './pkg/yield_max_wasm.js';
 
 const wasm = await readFile(new URL('./pkg/yield_max_wasm_bg.wasm', import.meta.url));
@@ -50,6 +50,28 @@ for (const [name, got, want] of [
 ]) check(name, got, want);
 
 if (!legend().includes('D=good4')) fail('legend() must describe the graded alphabet');
+
+// --- The values the page reads instead of restating ------------------------
+check('board_size()', board_size(), 17);
+check('max_input_bytes()', max_input_bytes(), 64 * 1024);
+for (const [args, want] of [
+  [['good', 4, false], '4'], [['good', 4, true], 'D'],
+  [['good', 1, false], '1'], [['good', 1, true], 'A'],
+  [['defect', 0, false], 'X'], [['defect', 0, true], '*'],
+  [['absent', 0, false], '.'], [['absent', 0, true], '-'],
+]) check(`glyph(${args.join(', ')})`, glyph(...args), want);
+for (const bad of [['good', 5, false], ['sideways', 0, false]]) {
+  try { glyph(...bad); fail(`glyph(${bad.join(', ')}) was accepted`); } catch { /* expected */ }
+}
+// The page draws the region outline with mask_covers(); every placement must
+// cover exactly the mask's sites.
+{
+  let covered = 0;
+  for (let r = 0; r < 17; r++) for (let c = 0; c < 17; c++) if (mask_covers(2, 4, r, c)) covered++;
+  check('mask_covers() site count', covered, 93);
+  check('mask_covers() center', mask_covers(2, 4, 7, 9), true);
+  check('mask_covers() top-left corner is not a site', mask_covers(2, 4, 2, 4), false);
+}
 
 // The report is labeled, and its labels are read back on the round-trip below.
 if (!r.report.includes('\nO ')) fail('the marked grid must carry row labels');

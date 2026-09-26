@@ -216,7 +216,9 @@ legal region now always has zero of it, so in practice `yield` is just good
 divided by the 93 mask sites.
 
 `tiebreak` records which policy produced this result, because the result is not
-reproducible without it. The tool reads it back: re-running on a report with no
+reproducible without it. The tool reads it back from that `# yield_max` header
+line (and only that line, so a comment of your own that mentions `tiebreak=`
+is just a comment): re-running on a report with no
 `--tiebreak` flag reuses the recorded policy, so **the output is valid input**
 under either policy — re-running the tool on its own report reproduces it byte
 for byte, and the recorded region can be recovered with
@@ -232,8 +234,9 @@ picking one that contradicts the report is the same error.
 ## Input validation
 
 Anything that is not unambiguously a wafer map is rejected; nothing malformed
-is silently reinterpreted. Inputs over 64 KB are refused (checked against the
-file size before reading, so a huge file costs a stat rather than the memory).
+is silently reinterpreted. Inputs over 64 KB are refused, and the CLI stops
+reading at the limit, so a huge file or an endless pipe costs 64 KB of memory
+at most.
 
 Two cases get special handling because the naive behavior misleads:
 
@@ -249,7 +252,11 @@ that is neither exactly 17 characters wide nor a labeled grid row (a row
 letter, a space, then 17 characters) is dropped before the grid is parsed.
 A leading line that does happen to be 17 characters wide is left alone and
 runs through normal validation instead, since at that width it can't be told
-apart from a genuinely malformed first grid row.
+apart from a genuinely malformed first grid row. And a first grid row of the
+*wrong* width, which this rule would take for header text, is still reported
+as `row 1 has length 16` rather than as a missing row: a dropped line made of
+nothing but wafer glyphs, directly above a grid one row short, is a mangled
+first row, not a lot number.
 
 Marks in the input that match no legal mask placement are overwritten by the
 run's result, but the tool **warns first** rather than discarding a hand edit
@@ -363,9 +370,10 @@ fallback to the default.
   and legend cannot differ between them.
 - `yield_max-cli/` — command-line frontend.
 - `yield_max-wasm/` — `wasm-bindgen` wrapper; also re-exports the mask via
-  `mask_rows()`, the grades via `grades_best_first()`, the policies via
-  `tie_breaks()` and the axis labels via `row_labels()`/`col_labels()`, so the
-  web UI cannot drift out of sync with the solver.
+  `mask_rows()` and `mask_covers()`, the cell alphabet via `glyph()`, the
+  grades via `grades_best_first()`, the policies via `tie_breaks()`, the axis
+  labels via `row_labels()`/`col_labels()`, and `board_size()` and
+  `max_input_bytes()`, so the web UI cannot drift out of sync with the solver.
 - `index.html` — web frontend (file upload, visualization, report download).
 
 ```bash

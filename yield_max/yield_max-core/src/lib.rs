@@ -29,13 +29,15 @@
 //! [`TieBreak`]).
 //!
 //! Lines beginning with `#` are comments and are ignored on input; the
-//! renderer emits a three-line `#` header describing the result so that the
-//! output file is self-describing. Because the alphabet is lossless, output
-//! of this tool is valid input to it (see [`WaferMap::marked_region`]).
+//! renderer emits a five-line `#` header (headline numbers, legend, column
+//! numbers) so that the output file is self-describing. Because the alphabet
+//! is lossless, output of this tool is valid input to it (see
+//! [`WaferMap::marked_region`]).
 //!
 //! Free-text header lines above the grid (lot number, operator, timestamp --
-//! anything not marked with `#`) are also tolerated: any leading line that
-//! isn't 17 characters wide is dropped before the grid is parsed.
+//! anything not marked with `#`) are also tolerated: any leading line that is
+//! neither 17 characters wide nor a labeled grid row is dropped before the
+//! grid is parsed.
 //!
 //! # Axis labels (version 4)
 //!
@@ -72,7 +74,7 @@ pub const MASK_TEMPLATE: [&str; MASK_SIZE] = [
     "....OOO....",
 ];
 
-/// Human-readable legend for the version-3 cell alphabet, emitted in the
+/// Human-readable legend for the cell alphabet, emitted in the
 /// output header so a reader needs no external documentation.
 pub const LEGEND: &str = "in-region: D=good4 C=good3 B=good2 A=good1 *=defect -=overhang   \
                           outside: 4/3/2/1=good X=defect .=absent";
@@ -308,17 +310,21 @@ static MASK: std::sync::LazyLock<[[bool; MASK_SIZE]; MASK_SIZE]> = std::sync::La
     grid
 });
 
-fn mask() -> &'static [[bool; MASK_SIZE]; MASK_SIZE] {
-    &MASK
-}
-
 /// Number of `O` cells in the mask, i.e. the number of die sites a 200mm
 /// region occupies regardless of where it is placed.
 pub fn mask_site_count() -> usize {
-    MASK_TEMPLATE
-        .iter()
-        .map(|row| row.chars().filter(|&c| c == 'O').count())
-        .sum()
+    MASK.iter().flatten().filter(|&&covered| covered).count()
+}
+
+/// True if grid site (`r`, `c`) falls under the mask placed with its top-left
+/// corner at (`top`, `left`). The one statement of "is this cell in the
+/// region": the solver, both renderers and (through the WASM export) the web
+/// UI all ask it rather than re-deriving the bounds check.
+pub fn mask_covers(top: usize, left: usize, r: usize, c: usize) -> bool {
+    match (r.checked_sub(top), c.checked_sub(left)) {
+        (Some(dr), Some(dc)) => dr < MASK_SIZE && dc < MASK_SIZE && MASK[dr][dc],
+        _ => false,
+    }
 }
 
 /// The state of a single die site, independent of region membership.
@@ -518,6 +524,19 @@ fn is_labeled_grid_row(line: &str) -> bool {
     split_row_label(line).is_some_and(|(label, _)| row_index(label).is_some())
 }
 
+/// True if `line` could only be a grid row of the wrong width: nothing but
+/// cell glyphs, optionally after the first row's label (`"A "`). Free-text
+/// header lines (lot numbers, operator names, timestamps) practically always
+/// carry something outside the cell alphabet -- a `0`, a lowercase letter, a
+/// `:` -- so this separates "a header we dropped" from "row 1, mangled".
+/// Returns the row's width if so.
+fn malformed_first_row_width(line: &str) -> Option<usize> {
+    let label = format!("{} ", ROW_LABELS[0]);
+    let cells = line.strip_prefix(label.as_str()).unwrap_or(line).trim_end();
+    (!cells.is_empty() && cells.chars().all(|ch| Die::from_char(ch).is_some()))
+        .then(|| cells.chars().count())
+}
+
 /// Describes a character for an error message. Whitespace and non-printing
 /// characters are named rather than printed, so a message about a tab, a
 /// non-breaking space, or a zero-width character is not itself invisible.
@@ -539,12 +558,18 @@ fn describe_char(ch: char) -> String {
     }
 }
 
-/// Finds `tiebreak=<value>` in a `#` comment line, as written by
-/// [`render_report`]. Only comment lines are searched, so a grid row can never
-/// be mistaken for a header.
+/// Finds `tiebreak=<value>` in the `# yield_max <version> ...` header line
+/// [`render_report`] writes. Only that line is searched: a grid row can never
+/// be mistaken for a header, and neither can a user's own comment that
+/// happens to mention `tiebreak=` (a note about an earlier run, say), which
+/// would otherwise silently change the policy or fail the parse.
 fn parse_header_tie_break(rows: &[&str]) -> Option<Result<TieBreak, UnknownTieBreak>> {
     rows.iter()
-        .filter(|l| l.trim_start().starts_with('#'))
+        .filter(|l| {
+            l.trim_start()
+                .strip_prefix('#')
+                .is_some_and(|rest| rest.split_whitespace().next() == Some("yield_max"))
+        })
         .flat_map(|l| l.split_whitespace())
         .find_map(|tok| tok.strip_prefix("tiebreak="))
         .map(|v| v.parse::<TieBreak>())
@@ -576,12 +601,19 @@ impl WaferMap {
         // the normal per-character validation below, so a genuinely malformed
         // first grid row (wrong character, invisible character, ...) still
         // fails loudly instead of being swallowed as "header".
+        //
+        // The catch is a first grid row of the wrong width, which looks like
+        // header text by this rule. The last line dropped is remembered so
+        // that case can still be reported as what it is (below).
+        let mut last_dropped: Option<&str> = None;
         while rows.first().is_some_and(|l| {
             l.trim().is_empty()
                 || l.trim_start().starts_with('#')
                 || !(is_grid_row_width(l) || is_labeled_grid_row(l))
         }) {
-            rows.remove(0);
+            let l = rows.remove(0);
+            let is_text = !l.trim().is_empty() && !l.trim_start().starts_with('#');
+            last_dropped = if is_text { Some(l) } else { None };
         }
         while rows
             .last()
@@ -591,6 +623,15 @@ impl WaferMap {
         }
 
         if rows.len() != BOARD_SIZE {
+            // One row short, straight after a dropped line made only of cell
+            // glyphs: that line was the first grid row at the wrong width, not
+            // header text. "Found 16 rows" would be wrong about a file the user
+            // can see has 17, so name the row that is actually broken.
+            if rows.len() == BOARD_SIZE - 1 {
+                if let Some(len) = last_dropped.and_then(malformed_first_row_width) {
+                    return Err(ParseError::WrongRowLength { row: 0, len });
+                }
+            }
             return Err(ParseError::WrongRowCount(rows.len()));
         }
 
@@ -725,18 +766,10 @@ impl WaferMap {
         if !self.has_marks() {
             return None;
         }
-        let mask = mask();
         for row in 0..=(BOARD_SIZE - MASK_SIZE) {
             for col in 0..=(BOARD_SIZE - MASK_SIZE) {
                 let matches = (0..BOARD_SIZE).all(|r| {
-                    (0..BOARD_SIZE).all(|c| {
-                        let inside = r >= row
-                            && r < row + MASK_SIZE
-                            && c >= col
-                            && c < col + MASK_SIZE
-                            && mask[r - row][c - col];
-                        inside == self.marked[r][c]
-                    })
+                    (0..BOARD_SIZE).all(|c| mask_covers(row, col, r, c) == self.marked[r][c])
                 });
                 if matches {
                     return Some(self.evaluate(row, col));
@@ -749,9 +782,8 @@ impl WaferMap {
     /// Scores a single placement of the mask with its top-left corner at
     /// (`row`, `col`).
     fn evaluate(&self, row: usize, col: usize) -> BestRegion {
-        let mask = mask();
         let mut stats = RegionStats::default();
-        for (dr, mask_row) in mask.iter().enumerate() {
+        for (dr, mask_row) in MASK.iter().enumerate() {
             for (dc, &covered) in mask_row.iter().enumerate() {
                 if !covered {
                     continue;
@@ -801,8 +833,7 @@ impl WaferMap {
     /// edge die (see [`WaferMap::is_edge_die`]), making this placement
     /// illegal regardless of how many good die it covers.
     fn region_touches_wafer_edge(&self, row: usize, col: usize) -> bool {
-        let mask = mask();
-        mask.iter().enumerate().any(|(dr, mask_row)| {
+        MASK.iter().enumerate().any(|(dr, mask_row)| {
             mask_row
                 .iter()
                 .enumerate()
@@ -910,6 +941,11 @@ impl BestRegion {
     pub fn name(&self) -> String {
         cell_name(self.row, self.col)
     }
+
+    /// True if grid site (`r`, `c`) is one of this region's sites.
+    pub fn covers(&self, r: usize, c: usize) -> bool {
+        mask_covers(self.row, self.col, r, c)
+    }
 }
 
 /// Returns the placement covering the most **grade-4** good die, using
@@ -966,19 +1002,13 @@ pub fn find_best_region_with(map: &WaferMap, tie_break: TieBreak) -> Option<Best
 /// Each row is prefixed with its row letter and a space (see [`ROW_LABELS`]),
 /// aligning it under the column numbers [`column_header_lines`] emits.
 pub fn mark_region(map: &WaferMap, region: &BestRegion) -> String {
-    let mask = mask();
     let mut out = String::with_capacity(BOARD_SIZE * (BOARD_SIZE + ROW_LABEL_PREFIX + 1));
 
     for r in 0..BOARD_SIZE {
         out.push(row_label(r));
         out.push(' ');
         for c in 0..BOARD_SIZE {
-            let in_region = r >= region.row
-                && r < region.row + MASK_SIZE
-                && c >= region.col
-                && c < region.col + MASK_SIZE
-                && mask[r - region.row][c - region.col];
-            out.push(map.get(r, c).to_char(in_region));
+            out.push(map.get(r, c).to_char(region.covers(r, c)));
         }
         out.push('\n');
     }
