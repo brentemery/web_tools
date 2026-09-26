@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Context
 
-`yield_max` is a Rust tool, part of the `web_tools` monorepo at `/home/exedev/git/web_tools/`. `README.md` is the spec; the workspace is `yield_max-core/` (solver), `yield_max-cli/`, and `yield_max-wasm/`, with `index.html` as the web frontend.
+`yield_max` is a Rust tool, part of the `web_tools` monorepo (its parent directory). `README.md` is the spec; the workspace is `yield_max-core/` (solver), `yield_max-cli/`, and `yield_max-wasm/`, with `index.html` as the web frontend.
 
 ## What it does
 
@@ -21,7 +21,7 @@ Given a 300mm wafer map as an ASCII text file, find the 200mm sub-region capturi
 - Output: the per-grade good counts for the optimal region, plus a new version of the input wafer text file with the region marked. In-region good die become `A`..`D` by grade, defects `*`, absent sites `-`. Version 2's `Z` is still accepted on input (as in-region grade 1) but never emitted.
 - **Version 4 labels the axes**: rows are lettered `A`.. top to bottom with `N` skipped (`ROW_LABELS` in core is the only place that rule lives), columns numbered 1..17, and a site is named `<letter><number>` — `A1`, `H10`, `R17`. Reports emit the column numbers as two `#` comment lines and prefix each grid row with its letter and a space; both are read back, so a report is still valid input, and an unlabeled 17-wide grid (anything written before v4) parses unchanged. A label that disagrees with its position, or a partially labeled file, is an error — it means a row was inserted, dropped or reordered.
 - The result also names the region's **center die**: the mask's middle site, offset (5,5) from the top-left corner, which is always a present site. It appears as `center=` in the header, in the CLI summary, in JSON, in the HTML report and (ringed on the grid) in the web UI. Labels are always *additive*: the 0-based `row=`/`col=` numbers are unchanged everywhere, so nothing that does arithmetic has to learn the notation.
-- The report header records `tiebreak=`, and the parser reads it back, so re-running on a report reproduces it rather than silently switching policy.
+- The report header records `tiebreak=`, and the parser reads it back (from the `# yield_max` line only), so re-running on a report reproduces it rather than silently switching policy. The precedence (explicit request, else header, else default) is `WaferMap::resolve_tie_break` in core, shared by the CLI and the web UI.
 - The CLI also writes an **HTML report** of every run (`<output>.html`, or `<input>_optimal.html` when the text report has no output path), rendered by `render_html` in core. It mirrors the web frontend's results panel — grid, legend, stats, the text report in a `<details>` — and must stay **self-contained** (inline CSS, no script, no external reference: it renders from wherever it was written) and **deterministic** (no timestamps, so two runs are byte-identical). Both properties are asserted in `yield_max-core/src/tests.rs` and in CI's end-to-end step. The styling is a deliberate copy of `index.html`'s; the *data* (grades, glyphs, legend, mask, stats) comes from core so only cosmetics can drift.
 - `test_wafer.txt` is a real (ungraded) sample input; `testdata/` holds the fixture set, each carrying its own expected answer in a `# expect:` header.
 
@@ -42,11 +42,11 @@ yield_max-wasm/
 ```
 The JS frontend imports from `./yield_max-wasm/pkg/yield_max_wasm.js` and calls `await init()` before using any exported functions. See `crosswind/crosswind-wasm/` for a working example of this layout (`Cargo.toml`, `src/lib.rs`, checked-in `pkg/`).
 
-After adding the tool's HTML entry point, add a link to it in `/home/exedev/git/web_tools/index.html`.
+After adding the tool's HTML entry point, add a link to it in the monorepo's root `index.html`.
 
 ## Build & Test Commands
 
-### Rust/WASM (once the crate exists)
+### Rust/WASM
 
 ```bash
 # Build WASM (run from inside the *-wasm/ directory)

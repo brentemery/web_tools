@@ -89,10 +89,23 @@ export class Placement {
 export function analyze_wafer(input: string, tie_break?: string | null): AnalysisResult;
 
 /**
+ * Rows and columns on the 300mm grid.
+ */
+export function board_size(): number;
+
+/**
  * The column numbers, left to right. Trivial today, but exported beside
  * `row_labels()` so both axes come from one place.
  */
 export function col_labels(): Uint32Array;
+
+/**
+ * The glyph a report uses for a die: `state` is `"good"`, `"defect"` or
+ * `"absent"`, `grade` (1..=4) matters only for a good die, and `in_region`
+ * picks the marked spelling. Exported so the page's legend and glyph lookup
+ * come from the alphabet the report is written in.
+ */
+export function glyph(state: string, grade: number, in_region: boolean): string;
 
 /**
  * The number of good-die grades, highest first (`[4, 3, 2, 1]`), so the UI can
@@ -106,6 +119,13 @@ export function grades_best_first(): Uint8Array;
 export function legend(): string;
 
 /**
+ * True if grid site (`r`, `c`) falls under the region whose top-left corner
+ * is at (`top`, `left`). The solver's own coverage rule, so the outline the
+ * page draws is the region that was scored.
+ */
+export function mask_covers(top: number, left: number, r: number, c: number): boolean;
+
+/**
  * The 200mm mask footprint as `O`/`.` rows. Exported so the web UI can draw
  * the region outline from the same constant the solver uses, instead of
  * keeping a copy that could silently drift out of sync.
@@ -116,6 +136,12 @@ export function mask_rows(): string[];
  * Total die sites a 200mm region occupies, wherever it is placed.
  */
 export function mask_sites(): number;
+
+/**
+ * The largest input the parser accepts, so the page can refuse a file by its
+ * size before reading it, against the same limit.
+ */
+export function max_input_bytes(): number;
 
 /**
  * The row letters, top to bottom, with `N` skipped. Exported so the web UI
@@ -142,11 +168,15 @@ export interface InitOutput {
     readonly analysisresult_tiebreak_source: (a: number) => [number, number];
     readonly analysisresult_warning: (a: number) => [number, number];
     readonly analyze_wafer: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly board_size: () => number;
     readonly col_labels: () => [number, number];
+    readonly glyph: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly grades_best_first: () => [number, number];
     readonly legend: () => [number, number];
+    readonly mask_covers: (a: number, b: number, c: number, d: number) => number;
     readonly mask_rows: () => [number, number];
     readonly mask_sites: () => number;
+    readonly max_input_bytes: () => number;
     readonly placement_center_col: (a: number) => number;
     readonly placement_center_label: (a: number) => [number, number];
     readonly placement_center_row: (a: number) => number;

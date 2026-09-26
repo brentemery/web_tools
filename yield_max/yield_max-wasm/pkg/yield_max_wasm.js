@@ -275,6 +275,15 @@ export function analyze_wafer(input, tie_break) {
 }
 
 /**
+ * Rows and columns on the 300mm grid.
+ * @returns {number}
+ */
+export function board_size() {
+    const ret = wasm.board_size();
+    return ret >>> 0;
+}
+
+/**
  * The column numbers, left to right. Trivial today, but exported beside
  * `row_labels()` so both axes come from one place.
  * @returns {Uint32Array}
@@ -284,6 +293,37 @@ export function col_labels() {
     var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
     return v1;
+}
+
+/**
+ * The glyph a report uses for a die: `state` is `"good"`, `"defect"` or
+ * `"absent"`, `grade` (1..=4) matters only for a good die, and `in_region`
+ * picks the marked spelling. Exported so the page's legend and glyph lookup
+ * come from the alphabet the report is written in.
+ * @param {string} state
+ * @param {number} grade
+ * @param {boolean} in_region
+ * @returns {string}
+ */
+export function glyph(state, grade, in_region) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(state, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.glyph(ptr0, len0, grade, in_region);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
 }
 
 /**
@@ -316,6 +356,21 @@ export function legend() {
 }
 
 /**
+ * True if grid site (`r`, `c`) falls under the region whose top-left corner
+ * is at (`top`, `left`). The solver's own coverage rule, so the outline the
+ * page draws is the region that was scored.
+ * @param {number} top
+ * @param {number} left
+ * @param {number} r
+ * @param {number} c
+ * @returns {boolean}
+ */
+export function mask_covers(top, left, r, c) {
+    const ret = wasm.mask_covers(top, left, r, c);
+    return ret !== 0;
+}
+
+/**
  * The 200mm mask footprint as `O`/`.` rows. Exported so the web UI can draw
  * the region outline from the same constant the solver uses, instead of
  * keeping a copy that could silently drift out of sync.
@@ -334,6 +389,16 @@ export function mask_rows() {
  */
 export function mask_sites() {
     const ret = wasm.mask_sites();
+    return ret >>> 0;
+}
+
+/**
+ * The largest input the parser accepts, so the page can refuse a file by its
+ * size before reading it, against the same limit.
+ * @returns {number}
+ */
+export function max_input_bytes() {
+    const ret = wasm.max_input_bytes();
     return ret >>> 0;
 }
 

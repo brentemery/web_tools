@@ -16,8 +16,8 @@
 //!   renderer can be tested by comparison.
 
 use crate::{
-    cell_name, col_label, mask, render_report, row_label, BestRegion, Die, Grade, TieBreak,
-    WaferMap, BOARD_SIZE, MASK_SIZE,
+    cell_name, col_label, render_report, row_label, BestRegion, Die, Grade, TieBreak, WaferMap,
+    BOARD_SIZE,
 };
 
 /// The page's styles, inlined. Ported from `index.html`'s results panel: the
@@ -336,15 +336,6 @@ fn cell_label(die: Die, row: usize, col: usize, in_region: bool, is_center: bool
     )
 }
 
-/// Whether `(row, col)` falls under the mask placed at `region`.
-fn in_region(region: &BestRegion, row: usize, col: usize) -> bool {
-    row >= region.row
-        && row < region.row + MASK_SIZE
-        && col >= region.col
-        && col < region.col + MASK_SIZE
-        && mask()[row - region.row][col - region.col]
-}
-
 /// Renders the result as a standalone HTML page: the marked wafer grid, the
 /// headline numbers, the legend, and the full text report embedded verbatim.
 ///
@@ -460,7 +451,7 @@ pub fn render_html(
         ));
         for c in 0..BOARD_SIZE {
             let die = map.get(r, c);
-            let region_cell = in_region(region, r, c);
+            let region_cell = region.covers(r, c);
 
             out.push_str("<div class=\"wafer-cell\" role=\"gridcell\"");
             out.push_str(&format!(" data-state=\"{}\"", state_name(die)));
@@ -473,7 +464,7 @@ pub fn render_html(
             if (r, c) == (center_row, center_col) {
                 out.push_str(" data-center=\"true\"");
             }
-            // Every glyph in the v3 alphabet is markup-safe, but escape anyway
+            // Every glyph in the cell alphabet is markup-safe, but escape anyway
             // so that stays true by construction rather than by luck.
             out.push_str(&format!(
                 " data-glyph=\"{}\"",
@@ -484,16 +475,16 @@ pub fn render_html(
             // of the region, so the mask's stepped outline is traced exactly.
             if region_cell {
                 let mut style = String::new();
-                if !in_region(region, r.wrapping_sub(1), c) {
+                if !region.covers(r.wrapping_sub(1), c) {
                     style.push_str("border-top-color: var(--region-accent);");
                 }
-                if !in_region(region, r + 1, c) {
+                if !region.covers(r + 1, c) {
                     style.push_str("border-bottom-color: var(--region-accent);");
                 }
-                if !in_region(region, r, c.wrapping_sub(1)) {
+                if !region.covers(r, c.wrapping_sub(1)) {
                     style.push_str("border-left-color: var(--region-accent);");
                 }
-                if !in_region(region, r, c + 1) {
+                if !region.covers(r, c + 1) {
                     style.push_str("border-right-color: var(--region-accent);");
                 }
                 if !style.is_empty() {

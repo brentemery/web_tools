@@ -430,13 +430,8 @@
         <div class="viz-root">
           <div class="wafer-viz">
             <div id="wafer-grid" class="wafer-grid" role="grid" aria-label="Wafer die map with selected 200mm region"></div>
-            <div class="legend">
-              <div class="legend-item"><span class="legend-swatch good-4"></span>Grade-4 die (<code>4</code>, <code>D</code> in region)</div>
-              <div class="legend-item"><span class="legend-swatch good-3"></span>Grade-3 die (<code>3</code>, <code>C</code> in region)</div>
-              <div class="legend-item"><span class="legend-swatch good-2"></span>Grade-2 die (<code>2</code>, <code>B</code> in region)</div>
-              <div class="legend-item"><span class="legend-swatch good-1"></span>Grade-1 die (<code>1</code>, <code>A</code> in region)</div>
-              <div class="legend-item"><span class="legend-swatch defect"></span>Defect die (<code>X</code>, <code>*</code> in region)</div>
-              <div class="legend-item"><span class="legend-swatch"></span>Not present (<code>.</code>, <code>-</code> in region)</div>
+            <div class="legend" id="legend">
+              <!-- Die rows are filled in from the solver's alphabet at load. -->
               <div class="legend-item"><span class="legend-swatch region"></span>Selected 200mm region</div>
               <div class="legend-item"><span class="legend-swatch center"></span>Center die of the region</div>
             </div>
@@ -455,11 +450,14 @@
     <script type="module">
       import init, {
         analyze_wafer,
-        mask_rows,
         tie_breaks,
         grades_best_first,
         row_labels,
         col_labels,
+        board_size,
+        max_input_bytes,
+        mask_covers,
+        glyph,
       } from './yield_max-wasm/pkg/yield_max_wasm.js';
 
       // Two samples on purpose: the graded one shows what the tool now
@@ -501,8 +499,6 @@ XXXXXXXXX1111X11X
 ....X11111X1X....
 .......XXXX......`;
 
-      const BOARD_SIZE = 17;
-
       const input = document.getElementById('wafer-input');
       const errorBox = document.getElementById('error');
       const warningBox = document.getElementById('warning');
@@ -513,12 +509,11 @@ XXXXXXXXX1111X11X
       const downloadBtn = document.getElementById('download-btn');
       const fileInput = document.getElementById('wafer-file');
 
-      // Fetched from WASM rather than duplicated here, so the outline the UI
-      // draws can never disagree with the mask the solver scored.
-      let MASK = [];
-      let MASK_SIZE = 0;
-      // Axis labels come from the solver too (the row letters skip 'N'), so
-      // the page cannot invent a second labeling scheme.
+      // Fetched from WASM rather than restated here, so the page cannot drift
+      // from the solver: the grid size, the input limit, and the axis labels
+      // (the row letters skip 'N').
+      let BOARD_SIZE = 0;
+      let MAX_INPUT_BYTES = 0;
       let ROW_LABELS = [];
       let COL_LABELS = [];
       let lastReport = null;
@@ -544,8 +539,8 @@ XXXXXXXXX1111X11X
 
       try {
         await init();
-        MASK = mask_rows();
-        MASK_SIZE = MASK.length;
+        BOARD_SIZE = board_size();
+        MAX_INPUT_BYTES = max_input_bytes();
         ROW_LABELS = row_labels();
         COL_LABELS = col_labels();
         analyzeBtn.disabled = false;
@@ -562,17 +557,15 @@ XXXXXXXXX1111X11X
         input.value = UNGRADED_SAMPLE;
       });
 
-      // Mirrors MAX_INPUT_BYTES in yield_max-core: refuse to read a file that
-      // cannot be a wafer map rather than pulling it into memory first.
-      const MAX_INPUT_BYTES = 64 * 1024;
-
+      // Refuse, by its size, a file that cannot be a wafer map rather than
+      // pulling it into memory first. The limit is the parser's own.
       fileInput.addEventListener('change', async () => {
         const file = fileInput.files?.[0];
         if (!file) return;
         if (file.size > MAX_INPUT_BYTES) {
           showError(
             `${file.name} is ${file.size} bytes, larger than the ${MAX_INPUT_BYTES} byte limit; ` +
-              'a wafer map is 17 rows of 17 characters.'
+              `a wafer map is ${BOARD_SIZE} rows of ${BOARD_SIZE} characters.`
           );
           fileInput.value = '';
           return;
@@ -596,11 +589,12 @@ XXXXXXXXX1111X11X
         URL.revokeObjectURL(url);
       });
 
+      // The solver's own coverage rule, so the outline drawn is exactly the
+      // region that was scored. Neighbours off the top or left edge are -1,
+      // which is not a site at all.
       function inRegion(row, col, best) {
-        const dr = row - best.row;
-        const dc = col - best.col;
-        if (dr < 0 || dr >= MASK_SIZE || dc < 0 || dc >= MASK_SIZE) return false;
-        return MASK[dr][dc] === 'O';
+        if (row < 0 || col < 0) return false;
+        return mask_covers(best.row, best.col, row, col);
       }
 
       function showTooltip(target, text) {
@@ -616,26 +610,51 @@ XXXXXXXXX1111X11X
         tooltip.hidden = true;
       }
 
-      // Maps a glyph from the version-3 alphabet to its die state and, for a
-      // good die, its grade. Both the in-region and out-of-region spellings
-      // resolve to the same state, which is what makes the format lossless.
-      // Built from grades_best_first() rather than written out, so adding a
-      // grade in the solver cannot leave the UI silently behind.
-      const STATE_BY_GLYPH = {
-        X: { state: 'defect' },
-        '*': { state: 'defect' },
-        '.': { state: 'absent' },
-        '-': { state: 'absent' },
-        // Version 2's only in-region good glyph. Still readable, so an old
-        // report pasted into this page still renders.
-        Z: { state: 'good', grade: 1 },
-      };
-      for (const grade of grades_best_first()) {
-        STATE_BY_GLYPH[String(grade)] = { state: 'good', grade };
-        STATE_BY_GLYPH[String.fromCharCode('A'.charCodeAt(0) + grade - 1)] = {
+      // Every die the report can show, best grade first, then defect and
+      // absent -- the legend's order. Each glyph comes from the solver's
+      // alphabet via glyph(), so neither the legend nor the grid restates it.
+      // (The grid is drawn from the solver's own report, which never carries
+      // version 2's input-only `Z`, so that needs no entry.)
+      const DIE_KINDS = [
+        // Spread first: this is a Uint8Array, whose own map() can only
+        // return numbers.
+        ...[...grades_best_first()].map((grade) => ({
           state: 'good',
           grade,
-        };
+          name: `Grade-${grade} die`,
+          swatch: `good-${grade}`,
+        })),
+        { state: 'defect', grade: 0, name: 'Defect die', swatch: 'defect' },
+        { state: 'absent', grade: 0, name: 'Not present', swatch: '' },
+      ];
+
+      // Maps a glyph to its die state and, for a good die, its grade. Both the
+      // in-region and out-of-region spellings resolve to the same state, which
+      // is what makes the format lossless.
+      const STATE_BY_GLYPH = {};
+      for (const kind of DIE_KINDS) {
+        const info = kind.state === 'good' ? { state: 'good', grade: kind.grade } : { state: kind.state };
+        STATE_BY_GLYPH[glyph(kind.state, kind.grade, false)] = info;
+        STATE_BY_GLYPH[glyph(kind.state, kind.grade, true)] = info;
+      }
+
+      // The die rows of the legend, ahead of its static region and center
+      // rows.
+      {
+        const legend = document.getElementById('legend');
+        const first = legend.firstElementChild;
+        for (const kind of DIE_KINDS) {
+          const item = document.createElement('div');
+          item.className = 'legend-item';
+          const swatch = document.createElement('span');
+          swatch.className = `legend-swatch ${kind.swatch}`.trim();
+          const outside = document.createElement('code');
+          outside.textContent = glyph(kind.state, kind.grade, false);
+          const inside = document.createElement('code');
+          inside.textContent = glyph(kind.state, kind.grade, true);
+          item.append(swatch, `${kind.name} (`, outside, ', ', inside, ' in region)');
+          legend.insertBefore(item, first);
+        }
       }
 
       const STATE_LABEL = {
