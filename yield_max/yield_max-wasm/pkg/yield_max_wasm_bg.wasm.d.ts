@@ -6,6 +6,7 @@ export const __wbg_placement_free: (a: number, b: number) => void;
 export const analysisresult_best: (a: number) => number;
 export const analysisresult_report: (a: number) => [number, number];
 export const analysisresult_tiebreak: (a: number) => [number, number];
+export const analysisresult_tiebreak_source: (a: number) => [number, number];
 export const analysisresult_warning: (a: number) => [number, number];
 export const analyze_wafer: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const col_labels: () => [number, number];

@@ -253,6 +253,47 @@ impl std::str::FromStr for TieBreak {
     }
 }
 
+/// Where a resolved tie-break policy came from. Worth reporting: a policy
+/// inherited from the input file is not obvious from the caller's request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TieBreakSource {
+    /// The caller asked for it explicitly.
+    Requested,
+    /// The input is a report, and its header recorded it.
+    Header,
+    /// Nothing asked for one and the input recorded none.
+    Default,
+}
+
+impl TieBreakSource {
+    /// A stable lowercase name, for JSON and the wasm API.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TieBreakSource::Requested => "requested",
+            TieBreakSource::Header => "header",
+            TieBreakSource::Default => "default",
+        }
+    }
+}
+
+/// Why no tie-break policy could be settled on. Each front end words these
+/// for its own controls (a flag, a radio button); the rule itself lives here
+/// so the CLI and the web UI cannot disagree about it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TieBreakConflict {
+    /// An explicit request contradicts the policy recorded in the input's
+    /// header. The input is a finished report, and re-solving it under another
+    /// policy would produce a different report indistinguishable on sight
+    /// from the one it replaced.
+    ContradictsHeader {
+        requested: TieBreak,
+        recorded: TieBreak,
+    },
+    /// Nothing was requested and the header names a policy this build does
+    /// not know. Quietly using the default would look like a reproduction.
+    UnknownInHeader(UnknownTieBreak),
+}
+
 /// The mask as a boolean grid, derived once from [`MASK_TEMPLATE`]. Deriving
 /// it from the string keeps a single human-readable source of truth for the
 /// shape; caching it stops the solver re-parsing that string on each of the 49
@@ -624,6 +665,30 @@ impl WaferMap {
     /// header named something unrecognized.
     pub fn header_tie_break(&self) -> Option<&Result<TieBreak, UnknownTieBreak>> {
         self.header_tie_break.as_ref()
+    }
+
+    /// Settles the tie-break policy for a run on this map: an explicit
+    /// `requested` policy, else the one recorded in the input's header, else
+    /// the default. A request that agrees with the header is fine; one that
+    /// contradicts it is an error, as is an unrecognized header with nothing
+    /// requested. This precedence is what makes re-running on a report
+    /// reproduce it, in every front end.
+    pub fn resolve_tie_break(
+        &self,
+        requested: Option<TieBreak>,
+    ) -> Result<(TieBreak, TieBreakSource), TieBreakConflict> {
+        match (requested, self.header_tie_break()) {
+            (Some(requested), Some(Ok(recorded))) if requested != *recorded => {
+                Err(TieBreakConflict::ContradictsHeader {
+                    requested,
+                    recorded: *recorded,
+                })
+            }
+            (Some(requested), _) => Ok((requested, TieBreakSource::Requested)),
+            (None, Some(Ok(recorded))) => Ok((*recorded, TieBreakSource::Header)),
+            (None, Some(Err(e))) => Err(TieBreakConflict::UnknownInHeader(e.clone())),
+            (None, None) => Ok((TieBreak::default(), TieBreakSource::Default)),
+        }
     }
 
     pub fn get(&self, row: usize, col: usize) -> Die {

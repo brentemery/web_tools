@@ -58,6 +58,23 @@ export class AnalysisResult {
         }
     }
     /**
+     * Where the policy came from: `"requested"` (the caller named it),
+     * `"header"` (the input is a report that recorded it) or `"default"`.
+     * @returns {string}
+     */
+    get tiebreak_source() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.analysisresult_tiebreak_source(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
      * A non-fatal advisory, or the empty string. Currently set when the
      * input carried region marks that this run will overwrite.
      * @returns {string}
@@ -235,9 +252,12 @@ if (Symbol.dispose) Placement.prototype[Symbol.dispose] = Placement.prototype.fr
  *
  * `tie_break` names the policy for settling a tie on the grade-4 count
  * (`"grade"` or `"total"`); it is optional and trailing so the original
- * one-argument call still works, and `null`/`undefined`/`""` mean "use the
- * default". An unrecognized value throws rather than falling back, since a
- * silent fallback would answer a different question than the one asked.
+ * one-argument call still works. `null`/`undefined`/`""` mean "not asked
+ * for": the policy recorded in the input's header if it is a report, else
+ * the default -- the same precedence as the CLI, so re-analyzing a report
+ * reproduces it. A named policy that contradicts the header throws, as does
+ * an unrecognized value; a silent fallback would answer a different question
+ * than the one asked.
  * @param {string} input
  * @param {string | null} [tie_break]
  * @returns {AnalysisResult}

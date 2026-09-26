@@ -16,6 +16,11 @@ export class AnalysisResult {
      */
     readonly tiebreak: string;
     /**
+     * Where the policy came from: `"requested"` (the caller named it),
+     * `"header"` (the input is a report that recorded it) or `"default"`.
+     */
+    readonly tiebreak_source: string;
+    /**
      * A non-fatal advisory, or the empty string. Currently set when the
      * input carried region marks that this run will overwrite.
      */
@@ -74,9 +79,12 @@ export class Placement {
  *
  * `tie_break` names the policy for settling a tie on the grade-4 count
  * (`"grade"` or `"total"`); it is optional and trailing so the original
- * one-argument call still works, and `null`/`undefined`/`""` mean "use the
- * default". An unrecognized value throws rather than falling back, since a
- * silent fallback would answer a different question than the one asked.
+ * one-argument call still works. `null`/`undefined`/`""` mean "not asked
+ * for": the policy recorded in the input's header if it is a report, else
+ * the default -- the same precedence as the CLI, so re-analyzing a report
+ * reproduces it. A named policy that contradicts the header throws, as does
+ * an unrecognized value; a silent fallback would answer a different question
+ * than the one asked.
  */
 export function analyze_wafer(input: string, tie_break?: string | null): AnalysisResult;
 
@@ -131,6 +139,7 @@ export interface InitOutput {
     readonly analysisresult_best: (a: number) => number;
     readonly analysisresult_report: (a: number) => [number, number];
     readonly analysisresult_tiebreak: (a: number) => [number, number];
+    readonly analysisresult_tiebreak_source: (a: number) => [number, number];
     readonly analysisresult_warning: (a: number) => [number, number];
     readonly analyze_wafer: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly col_labels: () => [number, number];

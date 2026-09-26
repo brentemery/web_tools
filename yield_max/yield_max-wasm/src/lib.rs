@@ -2,7 +2,7 @@ use wasm_bindgen::prelude::*;
 
 use yield_max_core::{
     col_label, find_best_region_with, mask_site_count, render_report, BestRegion, Grade, TieBreak,
-    WaferMap, BOARD_SIZE, LEGEND, MASK_TEMPLATE, ROW_LABELS,
+    TieBreakConflict, TieBreakSource, WaferMap, BOARD_SIZE, LEGEND, MASK_TEMPLATE, ROW_LABELS,
 };
 
 /// Scored placement of the 200mm region, carrying the full breakdown of why
@@ -138,6 +138,7 @@ pub struct AnalysisResult {
     report: String,
     warning: Option<String>,
     tie_break: TieBreak,
+    tie_break_source: TieBreakSource,
 }
 
 #[wasm_bindgen]
@@ -166,25 +167,53 @@ impl AnalysisResult {
     pub fn tiebreak(&self) -> String {
         self.tie_break.as_str().to_string()
     }
+
+    /// Where the policy came from: `"requested"` (the caller named it),
+    /// `"header"` (the input is a report that recorded it) or `"default"`.
+    #[wasm_bindgen(getter)]
+    pub fn tiebreak_source(&self) -> String {
+        self.tie_break_source.as_str().to_string()
+    }
 }
 
 /// Finds the 200mm region covering the most grade-4 die.
 ///
 /// `tie_break` names the policy for settling a tie on the grade-4 count
 /// (`"grade"` or `"total"`); it is optional and trailing so the original
-/// one-argument call still works, and `null`/`undefined`/`""` mean "use the
-/// default". An unrecognized value throws rather than falling back, since a
-/// silent fallback would answer a different question than the one asked.
+/// one-argument call still works. `null`/`undefined`/`""` mean "not asked
+/// for": the policy recorded in the input's header if it is a report, else
+/// the default -- the same precedence as the CLI, so re-analyzing a report
+/// reproduces it. A named policy that contradicts the header throws, as does
+/// an unrecognized value; a silent fallback would answer a different question
+/// than the one asked.
 #[wasm_bindgen]
 pub fn analyze_wafer(input: &str, tie_break: Option<String>) -> Result<AnalysisResult, JsValue> {
-    let tie_break = match tie_break.as_deref() {
-        None | Some("") => TieBreak::default(),
-        Some(name) => name
-            .parse::<TieBreak>()
-            .map_err(|e| JsValue::from_str(&e.to_string()))?,
+    let requested = match tie_break.as_deref() {
+        None | Some("") => None,
+        Some(name) => Some(
+            name.parse::<TieBreak>()
+                .map_err(|e| JsValue::from_str(&e.to_string()))?,
+        ),
     };
 
     let map = WaferMap::parse(input).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let (tie_break, tie_break_source) =
+        map.resolve_tie_break(requested)
+            .map_err(|conflict| match conflict {
+                TieBreakConflict::ContradictsHeader {
+                    requested,
+                    recorded,
+                } => JsValue::from_str(&format!(
+                    "This input is a report made with the '{recorded}' tie-break, so \
+                     re-analyzing it with '{requested}' would replace it with a different \
+                     answer. Choose '{recorded}' to reproduce it, or analyze the original \
+                     wafer map to use '{requested}'."
+                )),
+                TieBreakConflict::UnknownInHeader(e) => JsValue::from_str(&format!(
+                    "{e}. This report records a tie-break this version does not know; \
+                     choose one explicitly to re-analyze it."
+                )),
+            })?;
     let warning = map.has_inconsistent_marks().then(|| {
         "This map contains region marks that match no legal 200mm placement; \
          they have been replaced by this run's result."
@@ -203,6 +232,7 @@ pub fn analyze_wafer(input: &str, tie_break: Option<String>) -> Result<AnalysisR
         report: render_report(&map, &best, tie_break),
         warning,
         tie_break,
+        tie_break_source,
     })
 }
 

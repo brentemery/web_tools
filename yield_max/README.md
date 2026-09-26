@@ -224,6 +224,11 @@ for byte, and the recorded region can be recovered with
 error rather than a silent re-solve, since the result would be
 indistinguishable on sight from the report it replaced.
 
+The web page follows the same rule (both front ends share
+`WaferMap::resolve_tie_break`). Until you pick a tie-break yourself, it uses
+the policy a pasted report recorded and moves the radio button to match;
+picking one that contradicts the report is the same error.
+
 ## Input validation
 
 Anything that is not unambiguously a wafer map is rejected; nothing malformed
