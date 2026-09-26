@@ -516,6 +516,10 @@ XXXXXXXXX1111X11X
       let MAX_INPUT_BYTES = 0;
       let ROW_LABELS = [];
       let COL_LABELS = [];
+      // Also from the solver; filled in by setUpFromEngine() once it loads.
+      let DIE_KINDS = [];
+      let STATE_BY_GLYPH = {};
+      let TIE_BREAKS = [];
       let lastReport = null;
 
       function showError(message) {
@@ -543,9 +547,13 @@ XXXXXXXXX1111X11X
         MAX_INPUT_BYTES = max_input_bytes();
         ROW_LABELS = row_labels();
         COL_LABELS = col_labels();
+        setUpFromEngine();
         analyzeBtn.disabled = false;
       } catch (err) {
         // Without this the page looks fine but Analyze silently does nothing.
+        // Everything that needs the engine runs inside this try, so a failure
+        // here leaves the rest of the page (samples, file upload) working
+        // rather than aborting the whole script.
         showError(`Failed to load the analysis engine: ${err?.message ?? err}`);
       }
 
@@ -610,51 +618,60 @@ XXXXXXXXX1111X11X
         tooltip.hidden = true;
       }
 
-      // Every die the report can show, best grade first, then defect and
-      // absent -- the legend's order. Each glyph comes from the solver's
-      // alphabet via glyph(), so neither the legend nor the grid restates it.
-      // (The grid is drawn from the solver's own report, which never carries
-      // version 2's input-only `Z`, so that needs no entry.)
-      const DIE_KINDS = [
-        // Spread first: this is a Uint8Array, whose own map() can only
-        // return numbers.
-        ...[...grades_best_first()].map((grade) => ({
-          state: 'good',
-          grade,
-          name: `Grade-${grade} die`,
-          swatch: `good-${grade}`,
-        })),
-        { state: 'defect', grade: 0, name: 'Defect die', swatch: 'defect' },
-        { state: 'absent', grade: 0, name: 'Not present', swatch: '' },
-      ];
+      // Everything built from the solver's own lists. A function declaration,
+      // so the load block above can call it; it runs only once the engine has
+      // loaded, since each line here calls into it.
+      function setUpFromEngine() {
+        // Every die the report can show, best grade first, then defect and
+        // absent -- the legend's order. Each glyph comes from the solver's
+        // alphabet via glyph(), so neither the legend nor the grid restates it.
+        // (The grid is drawn from the solver's own report, which never carries
+        // version 2's input-only `Z`, so that needs no entry.)
+        DIE_KINDS = [
+          // Spread first: this is a Uint8Array, whose own map() can only
+          // return numbers.
+          ...[...grades_best_first()].map((grade) => ({
+            state: 'good',
+            grade,
+            name: `Grade-${grade} die`,
+            swatch: `good-${grade}`,
+          })),
+          { state: 'defect', grade: 0, name: 'Defect die', swatch: 'defect' },
+          { state: 'absent', grade: 0, name: 'Not present', swatch: '' },
+        ];
 
-      // Maps a glyph to its die state and, for a good die, its grade. Both the
-      // in-region and out-of-region spellings resolve to the same state, which
-      // is what makes the format lossless.
-      const STATE_BY_GLYPH = {};
-      for (const kind of DIE_KINDS) {
-        const info = kind.state === 'good' ? { state: 'good', grade: kind.grade } : { state: kind.state };
-        STATE_BY_GLYPH[glyph(kind.state, kind.grade, false)] = info;
-        STATE_BY_GLYPH[glyph(kind.state, kind.grade, true)] = info;
-      }
-
-      // The die rows of the legend, ahead of its static region and center
-      // rows.
-      {
-        const legend = document.getElementById('legend');
-        const first = legend.firstElementChild;
+        // Maps a glyph to its die state and, for a good die, its grade. Both the
+        // in-region and out-of-region spellings resolve to the same state, which
+        // is what makes the format lossless.
+        STATE_BY_GLYPH = {};
         for (const kind of DIE_KINDS) {
-          const item = document.createElement('div');
-          item.className = 'legend-item';
-          const swatch = document.createElement('span');
-          swatch.className = `legend-swatch ${kind.swatch}`.trim();
-          const outside = document.createElement('code');
-          outside.textContent = glyph(kind.state, kind.grade, false);
-          const inside = document.createElement('code');
-          inside.textContent = glyph(kind.state, kind.grade, true);
-          item.append(swatch, `${kind.name} (`, outside, ', ', inside, ' in region)');
-          legend.insertBefore(item, first);
+          const info = kind.state === 'good' ? { state: 'good', grade: kind.grade } : { state: kind.state };
+          STATE_BY_GLYPH[glyph(kind.state, kind.grade, false)] = info;
+          STATE_BY_GLYPH[glyph(kind.state, kind.grade, true)] = info;
         }
+
+        // The die rows of the legend, ahead of its static region and center
+        // rows.
+        {
+          const legend = document.getElementById('legend');
+          const first = legend.firstElementChild;
+          for (const kind of DIE_KINDS) {
+            const item = document.createElement('div');
+            item.className = 'legend-item';
+            const swatch = document.createElement('span');
+            swatch.className = `legend-swatch ${kind.swatch}`.trim();
+            const outside = document.createElement('code');
+            outside.textContent = glyph(kind.state, kind.grade, false);
+            const inside = document.createElement('code');
+            inside.textContent = glyph(kind.state, kind.grade, true);
+            item.append(swatch, `${kind.name} (`, outside, ', ', inside, ' in region)');
+            legend.insertBefore(item, first);
+          }
+        }
+
+        // Validated against the solver's own list, so a stale radio in the
+        // markup surfaces here rather than being passed through to wasm.
+        TIE_BREAKS = tie_breaks();
       }
 
       const STATE_LABEL = {
@@ -719,7 +736,12 @@ XXXXXXXXX1111X11X
             cell.dataset.region = String(region);
             cell.dataset.glyph = glyph;
             if (r === center[0] && c === center[1]) cell.dataset.center = 'true';
-            cell.tabIndex = 0;
+            cell.dataset.row = String(r);
+            cell.dataset.col = String(c);
+            // One Tab stop for the whole grid (a roving tabindex): the arrow
+            // keys move between cells, so 289 cells are not 289 Tab presses.
+            // It starts on the region's center die, the site the result names.
+            cell.tabIndex = r === center[0] && c === center[1] ? 0 : -1;
 
             if (region) {
               if (!inRegion(r - 1, c, best)) cell.style.borderTopColor = 'var(--region-accent)';
@@ -741,17 +763,21 @@ XXXXXXXXX1111X11X
 
             cell.addEventListener('pointerenter', () => showTooltip(cell, label));
             cell.addEventListener('pointerleave', hideTooltip);
-            cell.addEventListener('focus', () => showTooltip(cell, label));
+            cell.addEventListener('focus', () => {
+              // Whichever cell has focus, by keyboard or click, is the grid's
+              // one Tab stop, so Tab back in returns to it.
+              for (const other of grid.querySelectorAll('.wafer-cell[tabindex="0"]')) {
+                if (other !== cell) other.tabIndex = -1;
+              }
+              cell.tabIndex = 0;
+              showTooltip(cell, label);
+            });
             cell.addEventListener('blur', hideTooltip);
 
             rowEl.appendChild(cell);
           }
         }
       }
-
-      // Validated against the solver's own list, so a stale radio in the
-      // markup surfaces here rather than being passed through to wasm.
-      const TIE_BREAKS = tie_breaks();
 
       // The radios always have a value, so "a policy is selected" cannot mean
       // "the user asked for one". Until they pick one themselves, pass none:
@@ -871,6 +897,28 @@ XXXXXXXXX1111X11X
       }
 
       analyzeBtn.addEventListener('click', analyze);
+
+      // Arrow keys move between cells; Home/End go to the ends of the row, and
+      // with Ctrl to the first and last site of the grid -- the standard grid
+      // keys, so assistive tech users get what they expect.
+      grid.addEventListener('keydown', (event) => {
+        const cell = event.target.closest('.wafer-cell');
+        if (!cell) return;
+        let r = Number(cell.dataset.row);
+        let c = Number(cell.dataset.col);
+        const last = BOARD_SIZE - 1;
+        switch (event.key) {
+          case 'ArrowUp': r = Math.max(0, r - 1); break;
+          case 'ArrowDown': r = Math.min(last, r + 1); break;
+          case 'ArrowLeft': c = Math.max(0, c - 1); break;
+          case 'ArrowRight': c = Math.min(last, c + 1); break;
+          case 'Home': c = 0; if (event.ctrlKey) r = 0; break;
+          case 'End': c = last; if (event.ctrlKey) r = last; break;
+          default: return;
+        }
+        event.preventDefault();
+        grid.querySelector(`.wafer-cell[data-row="${r}"][data-col="${c}"]`)?.focus();
+      });
 
       // Re-analyze on a policy change, but only once Analyze has run: before
       // that there is nothing to update, and running on an empty textarea

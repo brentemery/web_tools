@@ -82,6 +82,8 @@ const report = r.report;
 b.free(); r.free();
 const r2 = analyze_wafer(report);
 if (r2.report !== report) fail('round-trip: re-running changed the report');
+// Its marks are exactly the result, so nothing is being replaced.
+check('round-trip warning', r2.warning, '');
 r2.best.free(); r2.free();
 
 // --- Graded wafers: grade 4 is what gets maximized --------------------------
@@ -149,6 +151,24 @@ for (const [policy, row, col, good] of [
   const plain = analyze_wafer(div);
   check('no header, nothing asked: source', plain.tiebreak_source, 'default');
   plain.best.free(); plain.free();
+}
+
+// --- Marks at a legal region that is not the result are replaced, loudly ---
+{
+  // An all-good wafer with the region hand-marked at (2, 2): legal, but the
+  // solver prefers an earlier placement.
+  const mask = mask_rows();
+  const rows = Array.from({ length: 17 }, (_, r) =>
+    Array.from({ length: 17 }, (_, c) => {
+      const dr = r - 2, dc = c - 2;
+      const inside = dr >= 0 && dr < 11 && dc >= 0 && dc < 11 && mask[dr][dc] === 'O';
+      return inside ? 'A' : '1';
+    }).join(''));
+  const a = analyze_wafer(rows.join('\n'));
+  if (!(a.best.row !== 2 || a.best.col !== 2)) fail('precondition: (2, 2) must not win');
+  if (!a.warning.includes('not this run\'s result')) fail(`legal non-winning marks: got warning ${JSON.stringify(a.warning)}`);
+  if (!a.warning.includes('centered on H8')) fail(`warning must name the marked region: ${a.warning}`);
+  a.best.free(); a.free();
 }
 
 // An unrecognized policy must throw, not quietly use the default.

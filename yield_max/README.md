@@ -258,9 +258,12 @@ as `row 1 has length 16` rather than as a missing row: a dropped line made of
 nothing but wafer glyphs, directly above a grid one row short, is a mangled
 first row, not a lot number.
 
-Marks in the input that match no legal mask placement are overwritten by the
-run's result, but the tool **warns first** rather than discarding a hand edit
-silently.
+Region marks in the input are overwritten by the run's result, and whenever
+that changes them the tool **warns first** rather than discarding a hand edit
+silently, naming both regions by their center die. That covers marks that
+form no region, marks at an illegal placement, and marks at a legal region
+that simply is not the winner (someone exploring an alternative by hand).
+Re-running on a report marks exactly the result again, so it stays quiet.
 
 ## Ties and edge cases
 

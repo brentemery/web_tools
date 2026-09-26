@@ -754,6 +754,29 @@ impl WaferMap {
                 .is_some_and(|r| self.is_legal_placement(r.row, r.col))
     }
 
+    /// How the input's region marks differ from `result`, the region this run
+    /// will write over them -- or `None` if there are no marks, or they mark
+    /// exactly `result` (re-running on a report, say). Rendering the report
+    /// replaces the marks, so callers warn with this rather than destroy a
+    /// hand edit unannounced. That includes a legal region that simply is not
+    /// the winner: someone exploring an alternative placement by hand should
+    /// hear that it is being replaced, not find it gone.
+    pub fn replaced_marks(&self, result: &BestRegion) -> Option<ReplacedMarks> {
+        if !self.has_marks() {
+            return None;
+        }
+        let Some(marked) = self.marked_region() else {
+            return Some(ReplacedMarks::NotARegion);
+        };
+        if (marked.row, marked.col) == (result.row, result.col) {
+            None
+        } else if !self.is_legal_placement(marked.row, marked.col) {
+            Some(ReplacedMarks::IllegalRegion(marked))
+        } else {
+            Some(ReplacedMarks::NotTheResult(marked))
+        }
+    }
+
     /// Recovers the region recorded in a previously marked file, if the
     /// marked cells exactly match the footprint of some placement of the
     /// mask. Returns `None` for an unmarked map, or if the marks do not form
@@ -840,6 +863,19 @@ impl WaferMap {
                 .any(|(dc, &covered)| covered && self.is_edge_die(row + dr, col + dc))
         })
     }
+}
+
+/// Why an input's region marks are about to be replaced; see
+/// [`WaferMap::replaced_marks`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReplacedMarks {
+    /// The marks do not form the footprint of any mask placement.
+    NotARegion,
+    /// They mark a placement no legal region can occupy: it overhangs onto
+    /// absent sites or covers a die on the wafer's edge.
+    IllegalRegion(BestRegion),
+    /// They mark a legal placement, but not the one this run chose.
+    NotTheResult(BestRegion),
 }
 
 /// Why a placement scored the way it did: how many good die of each grade it

@@ -2,8 +2,8 @@ use wasm_bindgen::prelude::*;
 
 use yield_max_core::{
     col_label, find_best_region_with, mask_site_count, render_report, BestRegion, Die, Grade,
-    TieBreak, TieBreakConflict, TieBreakSource, WaferMap, BOARD_SIZE, LEGEND, MASK_TEMPLATE,
-    MAX_INPUT_BYTES, ROW_LABELS,
+    ReplacedMarks, TieBreak, TieBreakConflict, TieBreakSource, WaferMap, BOARD_SIZE, LEGEND,
+    MASK_TEMPLATE, MAX_INPUT_BYTES, ROW_LABELS,
 };
 
 /// Scored placement of the 200mm region, carrying the full breakdown of why
@@ -215,11 +215,6 @@ pub fn analyze_wafer(input: &str, tie_break: Option<String>) -> Result<AnalysisR
                      choose one explicitly to re-analyze it."
                 )),
             })?;
-    let warning = map.has_inconsistent_marks().then(|| {
-        "This map contains region marks that match no legal 200mm placement; \
-         they have been replaced by this run's result."
-            .to_string()
-    });
     let best = find_best_region_with(&map, tie_break).ok_or_else(|| {
         JsValue::from_str(
             "no 200mm region fits entirely within this wafer with at least one die of \
@@ -227,6 +222,26 @@ pub fn analyze_wafer(input: &str, tie_break: Option<String>) -> Result<AnalysisR
              (its present-die area is too small everywhere it could sit)",
         )
     })?;
+    let warning = map.replaced_marks(&best).map(|replaced| {
+        let result = best.center_name();
+        match replaced {
+            ReplacedMarks::NotARegion => format!(
+                "This map contains region marks that form no 200mm region; they have \
+                 been replaced by this run's result, the region centered on {result}."
+            ),
+            ReplacedMarks::IllegalRegion(marked) => format!(
+                "This map marks the region centered on {}, which is not a legal \
+                 placement (it overhangs the wafer or covers a die on its edge); it has \
+                 been replaced by this run's result, the region centered on {result}.",
+                marked.center_name()
+            ),
+            ReplacedMarks::NotTheResult(marked) => format!(
+                "This map marks the region centered on {}, which is not this run's \
+                 result; it has been replaced by the region centered on {result}.",
+                marked.center_name()
+            ),
+        }
+    });
 
     Ok(AnalysisResult {
         best: Placement::from(&best),

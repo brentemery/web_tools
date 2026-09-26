@@ -1700,3 +1700,56 @@ fn mask_covers_matches_the_mask_everywhere() {
     assert!(!mask_covers(usize::MAX, usize::MAX, 3, 3));
     assert_eq!(mask_site_count(), 93);
 }
+
+/// Marks are compared with the result that will replace them. A legal region
+/// that is not the winner used to be replaced without a word, because only
+/// the marks' own legality was checked.
+#[test]
+fn replaced_marks_are_reported_against_the_result() {
+    let all_good = WaferMap::parse(&uniform('1')).unwrap();
+    let marked_at =
+        |row, col| WaferMap::parse(&mark_region(&all_good, &all_good.evaluate(row, col))).unwrap();
+
+    // No marks at all: nothing to replace.
+    let best = find_best_region(&all_good).unwrap();
+    assert_eq!(all_good.replaced_marks(&best), None);
+
+    // Marks at exactly the result -- a report re-run -- are not replaced.
+    let rerun = marked_at(best.row, best.col);
+    assert_eq!(
+        rerun.replaced_marks(&find_best_region(&rerun).unwrap()),
+        None
+    );
+
+    // A legal region that is not the winner is replaced, and says so.
+    assert_ne!(
+        (best.row, best.col),
+        (2, 2),
+        "precondition: (2, 2) loses the tie"
+    );
+    let other = marked_at(2, 2);
+    let result = find_best_region(&other).unwrap();
+    assert_eq!((result.row, result.col), (best.row, best.col));
+    assert!(
+        !other.has_inconsistent_marks(),
+        "the marks themselves are legal"
+    );
+    assert!(matches!(
+        other.replaced_marks(&result),
+        Some(ReplacedMarks::NotTheResult(r)) if (r.row, r.col) == (2, 2)
+    ));
+
+    // An illegal region: no edge clearance at (0, 0).
+    let edge = marked_at(0, 0);
+    assert!(matches!(
+        edge.replaced_marks(&find_best_region(&edge).unwrap()),
+        Some(ReplacedMarks::IllegalRegion(r)) if (r.row, r.col) == (0, 0)
+    ));
+
+    // Marks that form no footprint at all.
+    let stray = WaferMap::parse(&grid_only().replacen('1', "A", 1)).unwrap();
+    assert_eq!(
+        stray.replaced_marks(&find_best_region(&stray).unwrap()),
+        Some(ReplacedMarks::NotARegion)
+    );
+}
