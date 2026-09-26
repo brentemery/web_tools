@@ -6,7 +6,8 @@ use std::process::ExitCode;
 
 use yield_max_core::{
     find_best_region_with, mask_site_count, render_html, render_report, BestRegion, Grade,
-    TieBreak, TieBreakConflict, TieBreakSource, WaferMap, BOARD_SIZE, MAX_INPUT_BYTES,
+    ReplacedMarks, TieBreak, TieBreakConflict, TieBreakSource, WaferMap, BOARD_SIZE,
+    MAX_INPUT_BYTES,
 };
 
 const USAGE: &str = "\
@@ -66,6 +67,11 @@ fn parse_args(argv: impl Iterator<Item = String>) -> Result<Option<Args>, String
                 let parsed = value
                     .parse::<TieBreak>()
                     .map_err(|e| format!("{e}\n\n{USAGE}"))?;
+                // Last-one-wins would quietly ignore half of what was asked
+                // for, which is usually a script that set it twice by mistake.
+                if tie_break.is_some() {
+                    return Err(format!("--tiebreak given more than once\n\n{USAGE}"));
+                }
                 tie_break = Some(parsed);
             }
             // A lone "-" is a legal output path, so only reject longer flags.
@@ -247,6 +253,29 @@ fn json_report(
     )
 }
 
+/// The warning for input marks that this run's report will replace, naming the
+/// marked region by its center die, as every result is named.
+fn replaced_marks_warning(input: &str, replaced: ReplacedMarks, best: &BestRegion) -> String {
+    let result = format!("the region centered on {}", best.center_name());
+    match replaced {
+        ReplacedMarks::NotARegion => format!(
+            "{input} contains region marks that form no 200mm region; \
+             they will be replaced by this run's result, {result}"
+        ),
+        ReplacedMarks::IllegalRegion(marked) => format!(
+            "{input} marks the region centered on {}, which is not a legal placement \
+             (it overhangs the wafer or covers a die on its edge); it will be replaced \
+             by this run's result, {result}",
+            marked.center_name()
+        ),
+        ReplacedMarks::NotTheResult(marked) => format!(
+            "{input} marks the region centered on {}, which is not this run's result; \
+             it will be replaced by {result}",
+            marked.center_name()
+        ),
+    }
+}
+
 /// Which tie-break policy to use, and where it came from -- the latter is worth
 /// reporting, since a policy inherited from the input file is not obvious from
 /// the command line. The precedence rule is core's; only the wording is ours.
@@ -326,16 +355,6 @@ fn run() -> Result<(), String> {
     let map = WaferMap::parse(&input)
         .map_err(|e| format!("failed to parse {}: {e}", args.input.display()))?;
 
-    // Marks that match no legal placement get overwritten by the report, so
-    // say so rather than silently discarding what the user hand-edited.
-    if map.has_inconsistent_marks() {
-        eprintln!(
-            "warning: {} contains region marks that match no legal 200mm placement; \
-             they will be replaced by this run's result",
-            args.input.display()
-        );
-    }
-
     let (tie_break, tie_break_source) = resolve_tie_break(&args, &map)?;
 
     let best = find_best_region_with(&map, tie_break).ok_or_else(|| {
@@ -346,6 +365,15 @@ fn run() -> Result<(), String> {
             args.input.display()
         )
     })?;
+    // Marks the report is about to overwrite: say so rather than silently
+    // discard what the user hand-edited.
+    if let Some(replaced) = map.replaced_marks(&best) {
+        eprintln!(
+            "warning: {}",
+            replaced_marks_warning(&args.input.display().to_string(), replaced, &best)
+        );
+    }
+
     let report = render_report(&map, &best, tie_break);
 
     // Text first: if the HTML write then fails, the machine-readable artifact
@@ -545,6 +573,50 @@ mod tests {
         assert!(read_bounded(&b"\xff\xfe"[..])
             .unwrap_err()
             .contains("UTF-8"));
+    }
+
+    /// A second --tiebreak used to silently win over the first.
+    #[test]
+    fn rejects_a_repeated_tiebreak() {
+        for argv in [
+            &["--tiebreak=grade", "--tiebreak=total", "in.txt"][..],
+            &["--tiebreak=total", "in.txt", "--tiebreak=total"],
+        ] {
+            let err = args(argv).unwrap_err();
+            assert!(err.contains("more than once"), "got: {err}");
+        }
+    }
+
+    /// Each way the input's marks can differ from the result gets its own
+    /// wording, naming both regions by their center die.
+    #[test]
+    fn warns_about_each_kind_of_replaced_mark() {
+        let map = WaferMap::parse(include_str!("../../test_wafer.txt")).unwrap();
+        let best = find_best_region_with(&map, TieBreak::Grade).unwrap();
+        let other = BestRegion {
+            row: 3,
+            col: 4,
+            ..best
+        };
+
+        let w = replaced_marks_warning("w.txt", ReplacedMarks::NotTheResult(other), &best);
+        assert!(
+            w.contains("centered on I10") && w.contains("not this run's result"),
+            "{w}"
+        );
+        assert!(w.contains("replaced by the region centered on H10"), "{w}");
+
+        let w = replaced_marks_warning("w.txt", ReplacedMarks::IllegalRegion(other), &best);
+        assert!(
+            w.contains("not a legal placement") && w.contains("H10"),
+            "{w}"
+        );
+
+        let w = replaced_marks_warning("w.txt", ReplacedMarks::NotARegion, &best);
+        assert!(
+            w.contains("form no 200mm region") && w.contains("H10"),
+            "{w}"
+        );
     }
 
     #[test]
