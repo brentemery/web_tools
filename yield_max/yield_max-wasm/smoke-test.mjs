@@ -99,6 +99,36 @@ for (const [policy, row, col, good] of [
   p.free(); a.free();
 }
 
+// --- A report's recorded tie-break is honoured, as the CLI honours it ------
+// Re-analyzing a report with no policy named must reproduce it under the
+// policy its header recorded, not quietly switch to the default.
+{
+  const made = analyze_wafer(div, 'total');
+  const totalReport = made.report;
+  made.best.free(); made.free();
+
+  const again = analyze_wafer(totalReport);
+  check('header policy reused', again.tiebreak, 'total');
+  check('header policy source', again.tiebreak_source, 'header');
+  check('header policy reproduces the report', again.report, totalReport);
+  again.best.free(); again.free();
+
+  // Naming the recorded policy is fine; contradicting it must throw.
+  const agree = analyze_wafer(totalReport, 'total');
+  check('agreeing policy source', agree.tiebreak_source, 'requested');
+  agree.best.free(); agree.free();
+  try {
+    analyze_wafer(totalReport, 'grade');
+    fail('a policy contradicting the report header was accepted');
+  } catch (e) {
+    if (!String(e).includes("'total'")) fail(`contradiction error must name the recorded policy: ${e}`);
+  }
+
+  const plain = analyze_wafer(div);
+  check('no header, nothing asked: source', plain.tiebreak_source, 'default');
+  plain.best.free(); plain.free();
+}
+
 // An unrecognized policy must throw, not quietly use the default.
 try { analyze_wafer(map, 'sideways'); fail('an unknown tiebreak was accepted'); }
 catch { /* expected */ }

@@ -5,7 +5,7 @@ use std::process::ExitCode;
 
 use yield_max_core::{
     find_best_region_with, mask_site_count, render_html, render_report, BestRegion, Grade,
-    TieBreak, WaferMap, MAX_INPUT_BYTES,
+    TieBreak, TieBreakConflict, TieBreakSource, WaferMap, MAX_INPUT_BYTES,
 };
 
 const USAGE: &str = "\
@@ -215,28 +215,29 @@ fn json_report(
 
 /// Which tie-break policy to use, and where it came from -- the latter is worth
 /// reporting, since a policy inherited from the input file is not obvious from
-/// the command line.
+/// the command line. The precedence rule is core's; only the wording is ours.
 fn resolve_tie_break(args: &Args, map: &WaferMap) -> Result<(TieBreak, &'static str), String> {
-    match (args.tie_break, map.header_tie_break()) {
-        // An explicit flag that contradicts the input's own header asks us to
-        // re-solve a finished report under a different policy, and the result
-        // would be indistinguishable from that report on sight. Refuse rather
-        // than pick one silently.
-        (Some(flag), Some(Ok(header))) if flag != *header => Err(format!(
-            "--tiebreak={flag} contradicts the tiebreak={header} recorded in this input, \
-             which is itself a report; drop the flag to reproduce it, or run \
-             --tiebreak={flag} against the original wafer map instead"
+    match map.resolve_tie_break(args.tie_break) {
+        Ok((policy, source)) => Ok((
+            policy,
+            match source {
+                TieBreakSource::Requested => "--tiebreak",
+                TieBreakSource::Header => "the input's header",
+                TieBreakSource::Default => "the default",
+            },
         )),
-        (Some(flag), _) => Ok((flag, "--tiebreak")),
-        (None, Some(Ok(header))) => Ok((*header, "the input's header")),
-        // A header naming a policy we don't know is a real problem: we cannot
-        // reproduce the file, and quietly using the default would look like we
-        // had.
-        (None, Some(Err(e))) => Err(format!(
+        Err(TieBreakConflict::ContradictsHeader {
+            requested,
+            recorded,
+        }) => Err(format!(
+            "--tiebreak={requested} contradicts the tiebreak={recorded} recorded in this input, \
+             which is itself a report; drop the flag to reproduce it, or run \
+             --tiebreak={requested} against the original wafer map instead"
+        )),
+        Err(TieBreakConflict::UnknownInHeader(e)) => Err(format!(
             "{e}\n\nthe input file records a tie-break this build does not know; \
              pass --tiebreak=... to choose one explicitly"
         )),
-        (None, None) => Ok((TieBreak::default(), "the default")),
     }
 }
 

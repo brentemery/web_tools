@@ -1542,3 +1542,61 @@ fn html_report_escapes_its_source_label() {
     assert!(!html.contains("<script"));
     assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt; a&amp;b &quot;q&quot;"));
 }
+
+/// The tie-break precedence every front end shares: an explicit request, else
+/// the policy a report's header recorded, else the default. The web UI used to
+/// skip the middle step, so a `tiebreak=total` report pasted into the page was
+/// silently re-solved under `grade`.
+#[test]
+fn resolves_the_tie_break_from_request_then_header_then_default() {
+    let plain = WaferMap::parse(SAMPLE).unwrap();
+    assert_eq!(
+        plain.resolve_tie_break(None),
+        Ok((TieBreak::default(), TieBreakSource::Default))
+    );
+    assert_eq!(
+        plain.resolve_tie_break(Some(TieBreak::Total)),
+        Ok((TieBreak::Total, TieBreakSource::Requested))
+    );
+
+    // A report made under the non-default policy reproduces that policy when
+    // nothing is requested, and agreeing with it is fine.
+    let div = WaferMap::parse(include_str!("../../testdata/tiebreak_divergent.txt")).unwrap();
+    let best = find_best_region_with(&div, TieBreak::Total).unwrap();
+    let report = WaferMap::parse(&render_report(&div, &best, TieBreak::Total)).unwrap();
+    assert_eq!(
+        report.resolve_tie_break(None),
+        Ok((TieBreak::Total, TieBreakSource::Header))
+    );
+    assert_eq!(
+        report.resolve_tie_break(Some(TieBreak::Total)),
+        Ok((TieBreak::Total, TieBreakSource::Requested))
+    );
+
+    // Contradicting it is refused, naming both sides.
+    assert_eq!(
+        report.resolve_tie_break(Some(TieBreak::Grade)),
+        Err(TieBreakConflict::ContradictsHeader {
+            requested: TieBreak::Grade,
+            recorded: TieBreak::Total,
+        })
+    );
+}
+
+/// A header naming a policy this build doesn't know cannot be reproduced, so
+/// it is an error unless the caller picks a policy explicitly.
+#[test]
+fn an_unknown_header_tie_break_needs_an_explicit_request() {
+    let text = format!("# yield_max 9  tiebreak=sideways\n{SAMPLE}");
+    let map = WaferMap::parse(&text).unwrap();
+    assert_eq!(
+        map.resolve_tie_break(None),
+        Err(TieBreakConflict::UnknownInHeader(UnknownTieBreak(
+            "sideways".to_string()
+        )))
+    );
+    assert_eq!(
+        map.resolve_tie_break(Some(TieBreak::Grade)),
+        Ok((TieBreak::Grade, TieBreakSource::Requested))
+    );
+}

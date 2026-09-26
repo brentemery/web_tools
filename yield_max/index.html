@@ -409,7 +409,7 @@
           Best 200mm region: top-left at (row <strong id="result-row"></strong>, col
           <strong id="result-col"></strong>), centered on die
           <strong id="result-center"></strong>, with grade-4 ties broken by
-          <strong id="result-tiebreak"></strong>.
+          <strong id="result-tiebreak"></strong><span id="result-tiebreak-source"></span>.
         </p>
 
         <ul class="stats">
@@ -734,6 +734,13 @@ XXXXXXXXX1111X11X
       // markup surfaces here rather than being passed through to wasm.
       const TIE_BREAKS = tie_breaks();
 
+      // The radios always have a value, so "a policy is selected" cannot mean
+      // "the user asked for one". Until they pick one themselves, pass none:
+      // the solver then reuses the policy a pasted report recorded in its
+      // header (or the default), exactly as the CLI does without --tiebreak,
+      // and the radio is moved to show what was used.
+      let tieBreakChosen = false;
+
       function selectedTieBreak() {
         const checked = document.querySelector('input[name="tiebreak"]:checked');
         const value = checked?.value;
@@ -745,7 +752,11 @@ XXXXXXXXX1111X11X
         return value;
       }
 
+      // True once Analyze has run, whether or not it succeeded.
+      let hasAnalyzed = false;
+
       function analyze() {
+        hasAnalyzed = true;
         clearError();
         results.hidden = true;
         downloadBtn.hidden = true;
@@ -755,8 +766,9 @@ XXXXXXXXX1111X11X
         let best = null;
         let warningText = '';
         let tieBreak = '';
+        let tieBreakSource = '';
         try {
-          analysis = analyze_wafer(input.value, selectedTieBreak());
+          analysis = analyze_wafer(input.value, tieBreakChosen ? selectedTieBreak() : null);
           // Copy everything out of WASM memory before freeing the handles.
           const b = analysis.best;
           best = {
@@ -778,6 +790,7 @@ XXXXXXXXX1111X11X
           lastReport = analysis.report;
           warningText = analysis.warning;
           tieBreak = analysis.tiebreak;
+          tieBreakSource = analysis.tiebreak_source;
         } catch (err) {
           showError(typeof err === 'string' ? err : err.message || String(err));
           return;
@@ -791,6 +804,15 @@ XXXXXXXXX1111X11X
         document.getElementById('result-col').textContent = best.col;
         document.getElementById('result-center').textContent = best.center_label;
         document.getElementById('result-tiebreak').textContent = tieBreak;
+        document.getElementById('result-tiebreak-source').textContent =
+          tieBreakSource === 'header' ? ", as recorded in this report's header" : '';
+        // Show the policy actually used, which a report's header may have
+        // supplied. Setting `checked` does not fire `change`, so this is not
+        // mistaken for the user choosing it.
+        const usedRadio = document.querySelector(
+          `input[name="tiebreak"][value="${tieBreak}"]`
+        );
+        if (usedRadio) usedRadio.checked = true;
         document.getElementById('stat-center').textContent = best.center_label;
         document.getElementById('stat-center-row').textContent = best.center_row;
         document.getElementById('stat-center-col').textContent = best.center_col;
@@ -831,12 +853,14 @@ XXXXXXXXX1111X11X
 
       analyzeBtn.addEventListener('click', analyze);
 
-      // Re-analyze on a policy change, but only once a result is on screen:
-      // before that there is nothing to update, and running on an empty
-      // textarea would just raise a parse error the user didn't ask for.
+      // Re-analyze on a policy change, but only once Analyze has run: before
+      // that there is nothing to update, and running on an empty textarea
+      // would just raise a parse error the user didn't ask for. A failed run
+      // counts, so picking the policy an error asked for clears that error.
       for (const radio of document.querySelectorAll('input[name="tiebreak"]')) {
         radio.addEventListener('change', () => {
-          if (!results.hidden) analyze();
+          tieBreakChosen = true;
+          if (hasAnalyzed) analyze();
         });
       }
     </script>
