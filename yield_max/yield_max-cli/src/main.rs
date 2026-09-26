@@ -35,8 +35,8 @@ Options:
                  Recorded in the report header; when re-run on a previous
                  report, the header's policy is used unless this flag says
                  otherwise.
-  --json         Emit machine-readable JSON on stdout (including runners-up)
-                 instead of the human summary.
+  --json         Emit machine-readable JSON on stdout instead of the human
+                 summary. Needs a real output path, not '-'.
   -h, --help     Show this help.";
 
 #[derive(Debug)]
@@ -86,6 +86,15 @@ fn parse_args(argv: impl Iterator<Item = String>) -> Result<Option<Args>, String
         return Err(format!(
             "unexpected extra argument(s): {}\n\n{USAGE}",
             extra.join(", ")
+        ));
+    }
+
+    // `-` sends the text report to stdout, but so does --json; one of them
+    // would be lost. Refuse rather than drop the report without a word.
+    if json && output.as_deref() == Some("-") {
+        return Err(format!(
+            "--json and '-' both write to stdout; give the report an output path \
+             to use --json\n\n{USAGE}"
         ));
     }
 
@@ -156,9 +165,31 @@ fn json_placement(p: &BestRegion) -> String {
     )
 }
 
+/// `s` as a JSON string literal, quotes included. Paths are the only
+/// free-form text in the JSON, and they routinely carry backslashes (every
+/// Windows path does), so escaping only `"` produced invalid JSON -- or,
+/// worse, valid JSON with the wrong path (`a\b` read back as a backspace).
+fn json_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for ch in s.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if u32::from(c) < 0x20 => out.push_str(&format!("\\u{:04x}", u32::from(c))),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
 fn json_path(path: Option<&Path>) -> String {
     match path {
-        Some(p) => format!(r#""{}""#, p.display().to_string().replace('"', "\\\"")),
+        Some(p) => json_string(&p.display().to_string()),
         None => "null".to_string(),
     }
 }
@@ -458,6 +489,62 @@ mod tests {
     fn dash_is_a_valid_stdout_output_path() {
         let a = args(&["in.txt", "-"]).unwrap().unwrap();
         assert_eq!(a.output, Some(PathBuf::from("-")));
+    }
+
+    /// `-` and --json both claim stdout. This used to exit 0 with
+    /// `"output":null` and the text report written nowhere at all.
+    #[test]
+    fn rejects_json_with_the_report_on_stdout() {
+        for argv in [&["--json", "in.txt", "-"][..], &["in.txt", "-", "--json"]] {
+            let err = args(argv).unwrap_err();
+            assert!(err.contains("--json") && err.contains("'-'"), "got: {err}");
+        }
+        // Either one alone is still fine.
+        assert!(args(&["in.txt", "-"]).unwrap().is_some());
+        assert!(args(&["--json", "in.txt", "out.txt"]).unwrap().is_some());
+    }
+
+    /// Paths are free text and must be escaped as JSON strings, not just for
+    /// `"`: an unescaped backslash made every Windows path invalid JSON, and
+    /// turned `a\b` into a backspace.
+    #[test]
+    fn json_paths_are_escaped() {
+        assert_eq!(
+            json_path(Some(Path::new(r"C:\wafers\lot 7\w.txt"))),
+            r#""C:\\wafers\\lot 7\\w.txt""#
+        );
+        assert_eq!(json_path(Some(Path::new(r#"a"b"#))), r#""a\"b""#);
+        assert_eq!(
+            json_path(Some(Path::new("a\nb\tc\u{1}d"))),
+            r#""a\nb\tc\u0001d""#
+        );
+        assert_eq!(json_path(None), "null");
+
+        // And the whole report stays well-formed around such a path: every
+        // backslash in it starts a legal JSON escape.
+        let map = WaferMap::parse(include_str!("../../test_wafer.txt")).unwrap();
+        let best = find_best_region_with(&map, TieBreak::Grade).unwrap();
+        let json = json_report(
+            &best,
+            TieBreak::Grade,
+            Some(Path::new(r"C:\out\a.txt")),
+            Path::new(r"C:\out\a.html"),
+        );
+        assert!(json.contains(r#""output":"C:\\out\\a.txt""#), "got: {json}");
+        assert!(json.contains(r#""html":"C:\\out\\a.html""#), "got: {json}");
+        let mut chars = json.chars();
+        while let Some(c) = chars.next() {
+            if c == '\\' {
+                let next = chars.next();
+                assert!(
+                    matches!(
+                        next,
+                        Some('"' | '\\' | '/' | 'b' | 'f' | 'n' | 'r' | 't' | 'u')
+                    ),
+                    "invalid JSON escape \\{next:?} in: {json}"
+                );
+            }
+        }
     }
 
     #[test]

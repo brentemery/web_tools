@@ -630,22 +630,32 @@ impl WaferMap {
         self.grid[row][col]
     }
 
-    /// True if the input carried any in-region glyph (`Z`, `*`, `-`).
+    /// True if the input carried any in-region glyph (`A`..`D`, `Z`, `*`, `-`).
     pub fn has_marks(&self) -> bool {
         self.marked.iter().flatten().any(|&m| m)
     }
 
-    /// True if the input carried marks that match no legal mask placement.
-    /// Such marks are silently overwritten when the report is rendered, so
-    /// callers should warn rather than destroy the user's edit unannounced.
+    /// True if the input carried marks that match no legal mask placement:
+    /// either they form no mask footprint at all, or they form the footprint
+    /// of a placement the solver would never pick (overhang, or no clearance
+    /// from the wafer's edge). Such marks are overwritten when the report is
+    /// rendered, so callers should warn rather than destroy the user's edit
+    /// unannounced.
     pub fn has_inconsistent_marks(&self) -> bool {
-        self.has_marks() && self.marked_region().is_none()
+        self.has_marks()
+            && !self
+                .marked_region()
+                .is_some_and(|r| self.is_legal_placement(r.row, r.col))
     }
 
     /// Recovers the region recorded in a previously marked file, if the
-    /// marked cells exactly match some legal placement of the mask. Returns
-    /// `None` for an unmarked map, or if the marks do not form a valid
-    /// footprint (a hand-edited file, say).
+    /// marked cells exactly match the footprint of some placement of the
+    /// mask. Returns `None` for an unmarked map, or if the marks do not form
+    /// a mask footprint (a hand-edited file, say).
+    ///
+    /// The placement is *not* checked for legality: an older run or a hand
+    /// edit may record an overhanging one, and it is still worth recovering.
+    /// [`WaferMap::has_inconsistent_marks`] is the check that cares.
     pub fn marked_region(&self) -> Option<BestRegion> {
         if !self.has_marks() {
             return None;
@@ -712,6 +722,14 @@ impl WaferMap {
             }
         }
         false
+    }
+
+    /// True if the mask placed with its top-left corner at (`row`, `col`) is a
+    /// legal region: no site overhangs onto an absent die, and no site is a
+    /// wafer edge die. This is the one legality rule, shared by the solver and
+    /// by [`WaferMap::has_inconsistent_marks`].
+    fn is_legal_placement(&self, row: usize, col: usize) -> bool {
+        self.evaluate(row, col).stats.overhang == 0 && !self.region_touches_wafer_edge(row, col)
     }
 
     /// True if any site the mask would cover at (`row`, `col`) is a wafer
@@ -859,13 +877,10 @@ pub fn find_best_region_with(map: &WaferMap, tie_break: TieBreak) -> Option<Best
     let mut best: Option<BestRegion> = None;
     for row in 0..=max_offset {
         for col in 0..=max_offset {
+            if !map.is_legal_placement(row, col) {
+                continue;
+            }
             let candidate = map.evaluate(row, col);
-            if candidate.stats.overhang > 0 {
-                continue;
-            }
-            if map.region_touches_wafer_edge(row, col) {
-                continue;
-            }
             // Strict `>` keeps the first placement in row-major order on ties.
             let better = match &best {
                 None => true,
